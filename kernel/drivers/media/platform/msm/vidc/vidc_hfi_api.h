@@ -121,6 +121,8 @@ enum hal_extradata_id {
 	HAL_EXTRADATA_VQZIP_SEI,
 	HAL_EXTRADATA_YUV_STATS,
 	HAL_EXTRADATA_ROI_QP,
+	HAL_EXTRADATA_VUI_DISPLAY_INFO,
+	HAL_EXTRADATA_VPX_COLORSPACE,
 };
 
 enum hal_property {
@@ -231,6 +233,7 @@ enum hal_property {
 	HAL_PARAM_VENC_BITRATE_TYPE,
 	HAL_PARAM_VENC_H264_PIC_ORDER_CNT,
 	HAL_PARAM_VENC_LOW_LATENCY,
+	HAL_PARAM_VENC_VIDEO_SIGNAL_INFO,
 };
 
 enum hal_domain {
@@ -980,6 +983,13 @@ struct hal_vpe_color_space_conversion {
 	u32 csc_matrix[HAL_MAX_MATRIX_COEFFS];
 	u32 csc_bias[HAL_MAX_BIAS_COEFFS];
 	u32 csc_limit[HAL_MAX_LIMIT_COEFFS];
+};
+
+struct hal_video_signal_info {
+	u32 color_space;
+	u32 transfer_chars;
+	u32 matrix_coeffs;
+	bool full_range;
 };
 
 enum vidc_resource_id {
