@@ -77,6 +77,18 @@ struct msm_vidc_input_crop_payload {
 	unsigned int height;
 };
 
+struct msm_vidc_output_crop_payload {
+	unsigned int size;
+	unsigned int version;
+	unsigned int port_index;
+	unsigned int left;
+	unsigned int top;
+	unsigned int display_width;
+	unsigned int display_height;
+	unsigned int width;
+	unsigned int height;
+};
+
 struct msm_vidc_digital_zoom_payload {
 	unsigned int size;
 	unsigned int version;
@@ -203,6 +215,9 @@ enum msm_vidc_extradata_type {
 	MSM_VIDC_EXTRADATA_VQZIP_SEI = 0x00000011,
 	MSM_VIDC_EXTRADATA_ROI_QP = 0x00000013,
 	MSM_VIDC_EXTRADATA_INPUT_CROP = 0x0700000E,
+#define MSM_VIDC_EXTRADATA_OUTPUT_CROP \
+	MSM_VIDC_EXTRADATA_OUTPUT_CROP
+	MSM_VIDC_EXTRADATA_OUTPUT_CROP = 0x0700000F,
 	MSM_VIDC_EXTRADATA_DIGITAL_ZOOM = 0x07000010,
 #define MSM_VIDC_EXTRADATA_VPX_COLORSPACE_INFO \
 	MSM_VIDC_EXTRADATA_VPX_COLORSPACE_INFO

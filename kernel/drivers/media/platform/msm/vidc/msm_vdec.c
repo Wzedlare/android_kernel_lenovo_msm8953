@@ -73,6 +73,7 @@ static const char *const mpeg_video_vidc_extradata[] = {
 	"Extradata frame QP",
 	"Extradata frame bits info",
 	"Extradata VQZip SEI",
+	"Extradata output crop",
 };
 static const char *const mpeg_vidc_video_alloc_mode_type[] = {
 	"Buffer Allocation Static",
@@ -296,6 +297,7 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_QP) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_BITS_INFO) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_VQZIP_SEI) |
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_OUTPUT_CROP) |
  			(1 << V4L2_MPEG_VIDC_EXTRADATA_VUI_DISPLAY) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE)
 			),

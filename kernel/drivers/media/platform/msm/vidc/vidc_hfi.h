@@ -93,6 +93,7 @@
 #define HFI_EXTRADATA_METADATA_FILLER		0x7FE00002
 
 #define HFI_INDEX_EXTRADATA_INPUT_CROP		0x0700000E
+#define HFI_INDEX_EXTRADATA_OUTPUT_CROP		0x0700000F
 #define HFI_INDEX_EXTRADATA_ASPECT_RATIO	0x7F100003
 
 struct hfi_buffer_alloc_mode {
@@ -844,6 +845,18 @@ struct hfi_index_extradata_input_crop_payload {
 	u32 port_index;
 	u32 left;
 	u32 top;
+	u32 width;
+	u32 height;
+};
+
+struct hfi_index_extradata_output_crop_payload {
+	u32 size;
+	u32 version;
+	u32 port_index;
+	u32 left;
+	u32 top;
+	u32 display_width;
+	u32 display_height;
 	u32 width;
 	u32 height;
 };
