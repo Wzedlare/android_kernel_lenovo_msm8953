@@ -4625,6 +4625,9 @@ enum hal_extradata_id msm_comm_get_hal_extradata_index(
 	case V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE:
 		ret = HAL_EXTRADATA_VPX_COLORSPACE;
 		break;
+	case V4L2_MPEG_VIDC_EXTRADATA_PQ_INFO:
+		ret = HAL_EXTRADATA_PQ_INFO;
+		break;
 	default:
 		dprintk(VIDC_WARN, "Extradata not found: %d\n", index);
 		break;
