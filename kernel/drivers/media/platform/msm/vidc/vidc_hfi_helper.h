@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -294,6 +294,7 @@ struct hfi_buffer_info {
 #define  HFI_PROPERTY_PARAM_VDEC_PIC_STRUCT				\
 	(HFI_PROPERTY_PARAM_VDEC_COMMON_START + 0x009)
 
+
 #define HFI_PROPERTY_CONFIG_VDEC_COMMON_START				\
 	(HFI_DOMAIN_BASE_VDEC + HFI_ARCH_COMMON_OFFSET + 0x4000)
 
@@ -373,6 +374,8 @@ struct hfi_buffer_info {
 	(HFI_PROPERTY_PARAM_VENC_COMMON_START + 0x028)
 #define HFI_PROPERTY_PARAM_VENC_VPX_ERROR_RESILIENCE_MODE	\
 	(HFI_PROPERTY_PARAM_VENC_COMMON_START + 0x029)
+#define HFI_PROPERTY_PARAM_VENC_CONSTRAINED_INTRA_PRED	\
+	(HFI_PROPERTY_PARAM_VENC_COMMON_START + 0x02B)
 #define HFI_PROPERTY_PARAM_VENC_HIER_B_MAX_NUM_ENH_LAYER	\
 	(HFI_PROPERTY_PARAM_VENC_COMMON_START + 0x02C)
 #define  HFI_PROPERTY_PARAM_VENC_HIER_P_HYBRID_MODE	\

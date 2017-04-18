@@ -3104,7 +3104,8 @@ static void mmc_blk_cmdq_err(struct mmc_queue *mq)
 	struct mmc_request *mrq = host->err_mrq;
 	struct mmc_cmdq_context_info *ctx_info = &host->cmdq_ctx;
 	struct request_queue *q;
-	int err;
+	int err, ret;
+	u32 status = 0;
 
 	mmc_host_clk_hold(host);
 	host->cmdq_ops->dumpstate(host);
@@ -3123,8 +3124,14 @@ static void mmc_blk_cmdq_err(struct mmc_queue *mq)
 	/* RED error - Fatal: requires reset */
 	if (mrq->cmdq_req->resp_err) {
 		err = mrq->cmdq_req->resp_err;
-		pr_crit("%s: Response error detected: Device in bad state\n",
-			mmc_hostname(host));
+		if (mmc_host_halt(host) || mmc_host_cq_disable(host)) {
+			ret = get_card_status(host->card, &status, 0);
+			if (ret)
+				pr_err("%s: CMD13 failed with err %d\n",
+						mmc_hostname(host), ret);
+		}
+		pr_err("%s: Response error detected with device status 0x%08x\n",
+			mmc_hostname(host), status);
 		goto reset;
 	}
 
@@ -3753,7 +3760,7 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	    ((card->ext_csd.rel_param & EXT_CSD_WR_REL_PARAM_EN) ||
 	     card->ext_csd.rel_sectors)) {
 		md->flags |= MMC_BLK_REL_WR;
-        blk_queue_write_cache(md->queue.queue, true, true);
+		blk_queue_flush(md->queue.queue, REQ_FLUSH | REQ_FUA);
 	}
 
 	if (card->cmdq_init) {

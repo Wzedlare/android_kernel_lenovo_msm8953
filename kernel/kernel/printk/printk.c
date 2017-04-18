@@ -55,10 +55,6 @@
 #include "console_cmdline.h"
 #include "braille.h"
 
-//lenovo sw, yexh1, add lastkmsg feature
-#include <asm/le_rkm.h>
-//lenovo sw, yexh1, end
-
 #ifdef CONFIG_EARLY_PRINTK_DIRECT
 extern void printascii(char *);
 #endif
@@ -916,16 +912,8 @@ void __init setup_log_buf(int early)
 	if (!early && !new_log_buf_len)
 		log_buf_add_cpu();
 
-//lenovo sw, yexh1, add lastkmsg feature
 	if (!new_log_buf_len)
-	{
-#ifdef CONFIG_LENOVO_DEBUG_RKM
-		rkm_init_log_buf_header(__log_buf,log_buf_len);
-#endif
 		return;
-	}
-//lenovo sw, yexh1, end
-
 
 	if (early) {
 		new_log_buf =
@@ -1283,62 +1271,6 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 	kfree(text);
 	return len;
 }
-
-//lenovo sw, yexh1, add lastkmsg feature
-#ifdef CONFIG_LENOVO_DEBUG_RKM
-int kernel_log_buf_text_parser(char *kernel_log_buf, char *text_buf, int size)
-{
-	char *parser_text_buf;
-	char *buf = text_buf;
-	int total_size = size;
-	struct printk_log *msg;
-	int len = 0;
-	int log_idx = 0;
-	enum log_flags log_prev = LOG_NOCONS;
-
-	if((kernel_log_buf == NULL) || (text_buf == NULL))
-	{
-		return -EINVAL;
-	}
-
-	parser_text_buf = kmalloc(LOG_LINE_MAX + PREFIX_MAX, GFP_KERNEL);
-	if (!parser_text_buf)
-		return -ENOMEM;
-
-	while (size > 0) {
-		size_t n;
-
-		msg = (struct printk_log *)(kernel_log_buf + log_idx);
-		/*
-		 * A length == 0 record is the end of buffer marker. Wrap around and
-		 * read the message at the start of the buffer.
-		 */
-		if (!msg->len)
-			break;
-
-		n = msg_print_text(msg, log_prev, false, parser_text_buf,
-				LOG_LINE_MAX + PREFIX_MAX);
-
-		if ((len+n) >= total_size)
-			break;
-
-		log_prev = msg->flags;
-
-		log_idx = log_idx + msg->len;
-
-		memcpy(buf, parser_text_buf, n);
-
-		len += n;
-		size -= n;
-		buf += n;
-	}
-
-	kfree(parser_text_buf);
-	return len;
-}
-#endif
-//lenovo sw, yexh1, end
-
 
 int do_syslog(int type, char __user *buf, int len, bool from_file)
 {
@@ -2274,13 +2206,24 @@ void console_unlock(void)
 	static u64 seen_seq;
 	unsigned long flags;
 	bool wake_klogd = false;
-	bool retry;
+	bool do_cond_resched, retry;
 
 	if (console_suspended) {
 		up_console_sem();
 		return;
 	}
 
+	/*
+	 * Console drivers are called under logbuf_lock, so
+	 * @console_may_schedule should be cleared before; however, we may
+	 * end up dumping a lot of lines, for example, if called from
+	 * console registration path, and should invoke cond_resched()
+	 * between lines if allowable.  Not doing so can cause a very long
+	 * scheduling stall on a slow console leading to RCU stall and
+	 * softlockup warnings which exacerbate the issue with more
+	 * messages practically incapacitating the system.
+	 */
+	do_cond_resched = console_may_schedule;
 	console_may_schedule = 0;
 
 	/* flush buffered message fragment immediately to console */
@@ -2342,6 +2285,9 @@ skip:
 		call_console_drivers(level, text, len);
 		start_critical_timings();
 		local_irq_restore(flags);
+
+		if (do_cond_resched)
+			cond_resched();
 	}
 	console_locked = 0;
 
@@ -2406,6 +2352,25 @@ void console_unblank(void)
 	for_each_console(c)
 		if ((c->flags & CON_ENABLED) && c->unblank)
 			c->unblank();
+	console_unlock();
+}
+
+/**
+ * console_flush_on_panic - flush console content on panic
+ *
+ * Immediately output all pending messages no matter what.
+ */
+void console_flush_on_panic(void)
+{
+	/*
+	 * If someone else is holding the console lock, trylock will fail
+	 * and may_schedule may be set.  Ignore and proceed to unlock so
+	 * that messages are flushed out.  As this can be called from any
+	 * context and we don't want to get preempted while flushing,
+	 * ensure may_schedule is cleared.
+	 */
+	console_trylock();
+	console_may_schedule = 0;
 	console_unlock();
 }
 

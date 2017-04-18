@@ -322,10 +322,6 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 	int ret = HRTIMER_NORESTART;
 	int restart = ALARMTIMER_NORESTART;
 
-//lenovo sw, yexh1, add log for showing alarm wakeup 
-	printk("%s\n", __func__);
-//lenovo sw, yexh1, end
-
 	spin_lock_irqsave(&base->lock, flags);
 	alarmtimer_dequeue(base, alarm);
 	spin_unlock_irqrestore(&base->lock, flags);

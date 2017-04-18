@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013, Sony Mobile Communications AB.
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,10 +27,9 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/spinlock.h>
+#include <linux/syscore_ops.h>
 #include <linux/reboot.h>
 #include <linux/irqchip/msm-mpm-irq.h>
-#include <linux/syscore_ops.h>
-#include <linux/wakeup_reason.h>
 #include "../core.h"
 #include "../pinconf.h"
 #include "pinctrl-msm.h"
@@ -72,7 +71,8 @@ struct msm_pinctrl {
 	const struct msm_pinctrl_soc_data *soc;
 	void __iomem *regs;
 };
-static struct msm_pinctrl msm_pctrl;
+
+static struct msm_pinctrl *msm_pinctrl_data;
 
 static inline struct msm_pinctrl *to_msm_pinctrl(struct gpio_chip *gc)
 {
@@ -930,11 +930,8 @@ static void msm_pinctrl_ebi2_emmc_enable(struct msm_pinctrl *pctrl,
 	val |= BIT(tlmm_emmc_boot_select);
 	writel_relaxed(val, pctrl->regs + TLMM_EBI2_EMMC_GPIO_CFG);
 }
-/* chenyb1, 20130515, Add sysfs for gpio's debug, START */
-#ifdef CONFIG_LENOVO_PM_LOG
-void *tlmm_reg_base;
-#endif
-/* chenyb1, 20130515, Add sysfs for gpio's debug, END */
+
+#ifdef CONFIG_PM
 static int msm_pinctrl_suspend(void)
 {
 	return 0;
@@ -942,37 +939,44 @@ static int msm_pinctrl_suspend(void)
 
 static void msm_pinctrl_resume(void)
 {
-	int i, irq_pin;
+	int i, irq;
 	u32 val;
+	unsigned long flags;
+	struct irq_desc *desc;
 	const struct msm_pingroup *g;
-	struct msm_pinctrl *pctrl = &msm_pctrl;
+	const char *name = "null";
+	struct msm_pinctrl *pctrl = msm_pinctrl_data;
 
+	if (!msm_show_resume_irq_mask)
+		return;
+
+	spin_lock_irqsave(&pctrl->lock, flags);
 	for_each_set_bit(i, pctrl->enabled_irqs, pctrl->chip.ngpio) {
-		struct irq_desc *desc = NULL;
-		const char *name = "null";
-
 		g = &pctrl->soc->groups[i];
 		val = readl_relaxed(pctrl->regs + g->intr_status_reg);
 		if (val & BIT(g->intr_status_bit)) {
-			irq_pin = irq_find_mapping(pctrl->chip.irqdomain, i);
-			desc = irq_to_desc(irq_pin);
-
+			irq = irq_find_mapping(pctrl->chip.irqdomain, i);
+			desc = irq_to_desc(irq);
 			if (desc == NULL)
 				name = "stray irq";
 			else if (desc->action && desc->action->name)
 				name = desc->action->name;
-			else if (desc->name)
-				name = desc->name;
 
-			log_wakeup_reason(irq_pin);
+			pr_warn("%s: %d triggered %s\n", __func__, irq, name);
 		}
 	}
+	spin_unlock_irqrestore(&pctrl->lock, flags);
 }
+#else
+#define msm_pinctrl_suspend NULL
+#define msm_pinctrl_resume NULL
+#endif
 
-static struct syscore_ops pinctrl_syscore_ops = {
+static struct syscore_ops msm_pinctrl_pm_ops = {
 	.suspend = msm_pinctrl_suspend,
-	.resume  = msm_pinctrl_resume,
+	.resume = msm_pinctrl_resume,
 };
+
 int msm_pinctrl_probe(struct platform_device *pdev,
 		      const struct msm_pinctrl_soc_data *soc_data)
 {
@@ -981,7 +985,8 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	int ret;
 	u32 tlmm_emmc_boot_select;
 
-	pctrl = &msm_pctrl;
+	msm_pinctrl_data = pctrl = devm_kzalloc(&pdev->dev,
+				sizeof(*pctrl), GFP_KERNEL);
 	if (!pctrl) {
 		dev_err(&pdev->dev, "Can't allocate msm_pinctrl\n");
 		return -ENOMEM;
@@ -997,12 +1002,6 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	if (IS_ERR(pctrl->regs))
 		return PTR_ERR(pctrl->regs);
 
-/* chenyb1, 20130515, Add sysfs for gpio's debug, START */
-#ifdef CONFIG_LENOVO_PM_LOG
-	tlmm_reg_base = pctrl->regs;
-	printk("%s(), %d, TLMM_BASE=%lx\n", __func__, __LINE__, (unsigned long int)(void *)tlmm_reg_base);
-#endif
-/* chenyb1, 20130515, Add sysfs for gpio's debug, END */
 	msm_pinctrl_setup_pm_reset(pctrl);
 	if (!of_property_read_u32(pctrl->dev->of_node,
 					"qcom,tlmm-emmc-boot-select",
@@ -1033,8 +1032,7 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	pctrl->irq_chip_extn = &mpm_pinctrl_extn;
 	platform_set_drvdata(pdev, pctrl);
 
-	register_syscore_ops(&pinctrl_syscore_ops);
-
+	register_syscore_ops(&msm_pinctrl_pm_ops);
 	dev_dbg(&pdev->dev, "Probed Qualcomm pinctrl driver\n");
 
 	return 0;
@@ -1049,6 +1047,7 @@ int msm_pinctrl_remove(struct platform_device *pdev)
 	pinctrl_unregister(pctrl->pctrl);
 
 	unregister_restart_handler(&pctrl->restart_nb);
+	unregister_syscore_ops(&msm_pinctrl_pm_ops);
 
 	return 0;
 }

@@ -686,9 +686,7 @@ static int xlvbd_init_blk_queue(struct gendisk *gd, u16 sector_size,
 
 static void xlvbd_flush(struct blkfront_info *info)
 {
-	blk_queue_write_cache(info->rq, info->feature_flush & REQ_FLUSH,
-				info->feature_flush & REQ_FUA);
-
+	blk_queue_flush(info->rq, info->feature_flush);
 	printk(KERN_INFO "blkfront: %s: %s: %s %s %s %s %s\n",
 	       info->gd->disk_name,
 	       info->flush_op == BLKIF_OP_WRITE_BARRIER ?
@@ -1913,7 +1911,8 @@ static void blkback_changed(struct xenbus_device *dev,
 			break;
 		/* Missed the backend's Closing state -- fallthrough */
 	case XenbusStateClosing:
-		blkfront_closing(info);
+		if (info)
+			blkfront_closing(info);
 		break;
 	}
 }

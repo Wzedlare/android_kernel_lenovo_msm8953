@@ -40,8 +40,7 @@
 /* Globals */
 static int zram_major;
 static struct zram *zram_devices;
-/* Lenovo wuzb1 2016-03-22 set default lz4 */
-static const char *default_compressor = "lz4";
+static const char *default_compressor = "lzo";
 
 /*
  * We don't need to see memory allocation errors more than once every 1

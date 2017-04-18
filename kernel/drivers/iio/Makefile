@@ -17,7 +17,6 @@ obj-y += amplifiers/
 obj-y += common/
 obj-y += dac/
 obj-y += gyro/
-obj-y += ecompass/
 obj-y += frequency/
 obj-y += humidity/
 obj-y += imu/

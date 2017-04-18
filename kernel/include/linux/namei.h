@@ -55,12 +55,6 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 #define LOOKUP_JUMPED		0x1000
 #define LOOKUP_ROOT		0x2000
 #define LOOKUP_EMPTY		0x4000
-/*2015.1.28 add begin for sdcardfs support case-insensitive search*/
-#ifdef CONFIG_SDCARD_FS_CI_SEARCH
-#define LOOKUP_CASE_INSENSITIVE 0x8000
-#define LOOKUP_NOCASE		0x8000
-#endif
-/*2015.1.28 add end*/
 
 extern int user_path_at(int, const char __user *, unsigned, struct path *);
 extern int user_path_at_empty(int, const char __user *, unsigned, struct path *, int *empty);
@@ -77,6 +71,8 @@ extern struct dentry *user_path_create(int, const char __user *, struct path *, 
 extern void done_path_create(struct path *, struct dentry *);
 extern struct dentry *kern_path_locked(const char *, struct path *);
 extern int kern_path_mountpoint(int, const char *, struct path *, unsigned int);
+extern int vfs_path_lookup(struct dentry *, struct vfsmount *,
+		const char *, unsigned int, struct path *);
 
 extern struct dentry *lookup_one_len(const char *, struct dentry *, int);
 

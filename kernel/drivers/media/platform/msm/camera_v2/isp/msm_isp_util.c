@@ -181,13 +181,21 @@ uint32_t msm_isp_get_framedrop_period(
 	return 1;
 }
 
-void msm_isp_get_timestamp(struct msm_isp_timestamp *time_stamp)
+void msm_isp_get_timestamp(struct msm_isp_timestamp *time_stamp,
+	struct vfe_device *vfe_dev)
 {
 	struct timespec ts;
-	get_monotonic_boottime(&ts);
-	time_stamp->buf_time.tv_sec    = ts.tv_sec;
-	time_stamp->buf_time.tv_usec   = ts.tv_nsec/1000;
 	do_gettimeofday(&(time_stamp->event_time));
+	if (vfe_dev->vt_enable) {
+		msm_isp_get_avtimer_ts(time_stamp);
+		time_stamp->buf_time.tv_sec    = time_stamp->vt_time.tv_sec;
+		time_stamp->buf_time.tv_usec   = time_stamp->vt_time.tv_usec;
+	} else	{
+		get_monotonic_boottime(&ts);
+		time_stamp->buf_time.tv_sec    = ts.tv_sec;
+		time_stamp->buf_time.tv_usec   = ts.tv_nsec/1000;
+	}
+
 }
 
 static inline u32 msm_isp_evt_mask_to_isp_event(u32 evt_mask)
@@ -656,10 +664,8 @@ static int msm_isp_proc_cmd_list_unlocked(struct vfe_device *vfe_dev, void *arg)
 		}
 
 		rc = msm_isp_proc_cmd(vfe_dev, &cmd_next.cfg_cmd);
-		if (rc < 0) {
+		if (rc < 0)
 			pr_err("%s:%d failed: rc %d", __func__, __LINE__, rc);
-			break;
-		}
 
 		cmd = cmd_next;
 	}
@@ -1035,7 +1041,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 			reg_cfg_cmd->u.rw_info.len) >
 			vfe_dev->vfe_base_size) ||
 			(reg_cfg_cmd->u.rw_info.reg_offset & 0x3)) {
-			pr_err_ratelimited("%s:%d reg_offset %d len %d res %d\n",
+			pr_err_ratelimited("%s:%d regoffset %d len %d res %d\n",
 				__func__, __LINE__,
 				reg_cfg_cmd->u.rw_info.reg_offset,
 				reg_cfg_cmd->u.rw_info.len,
@@ -1047,7 +1053,7 @@ static int msm_isp_send_hw_cmd(struct vfe_device *vfe_dev,
 			(UINT_MAX - reg_cfg_cmd->u.rw_info.len)) ||
 			((reg_cfg_cmd->u.rw_info.cmd_data_offset +
 			reg_cfg_cmd->u.rw_info.len) > cmd_len)) {
-                        pr_err_ratelimited("%s:%d cmd_data_offset %d len %d cmd_len %d\n",
+			pr_err_ratelimited("%s:%d cmd_data_offset %d len %d cmd_len %d\n",
 				__func__, __LINE__,
 				reg_cfg_cmd->u.rw_info.cmd_data_offset,
 				reg_cfg_cmd->u.rw_info.len, cmd_len);
@@ -1444,6 +1450,7 @@ int msm_isp_cal_word_per_line(uint32_t output_format,
 	case V4L2_PIX_FMT_SGBRG10:
 	case V4L2_PIX_FMT_SGRBG10:
 	case V4L2_PIX_FMT_SRGGB10:
+	case V4L2_PIX_FMT_Y10:
 	case V4L2_PIX_FMT_SBGGR10DPCM6:
 	case V4L2_PIX_FMT_SGBRG10DPCM6:
 	case V4L2_PIX_FMT_SGRBG10DPCM6:
@@ -1452,7 +1459,6 @@ int msm_isp_cal_word_per_line(uint32_t output_format,
 	case V4L2_PIX_FMT_SGBRG10DPCM8:
 	case V4L2_PIX_FMT_SGRBG10DPCM8:
 	case V4L2_PIX_FMT_SRGGB10DPCM8:
-	case V4L2_PIX_FMT_Y10:
 	case V4L2_PIX_FMT_META10:
 		val = CAL_WORD(pixel_per_line, 5, 32);
 		break;
@@ -1845,7 +1851,7 @@ static void msm_isp_enqueue_tasklet_cmd(struct vfe_device *vfe_dev,
 	queue_cmd->vfeInterruptStatus0 = irq_status0;
 	queue_cmd->vfeInterruptStatus1 = irq_status1;
 	queue_cmd->vfePingPongStatus = ping_pong_status;
-	msm_isp_get_timestamp(&queue_cmd->ts);
+	msm_isp_get_timestamp(&queue_cmd->ts, vfe_dev);
 	queue_cmd->cmd_used = 1;
 	vfe_dev->taskletq_idx = (vfe_dev->taskletq_idx + 1) %
 		MSM_VFE_TASKLETQ_SIZE;

@@ -116,7 +116,6 @@
 #define	FLASH_LED_MODULE_CTRL_DEFAULT				0x60
 #define	FLASH_LED_CURRENT_READING_DELAY_MIN			5000
 #define	FLASH_LED_CURRENT_READING_DELAY_MAX			5001
-#define PMI8996_SUBTYPE						19
 #define	FLASH_LED_OPEN_FAULT_DETECTED				0xC
 
 #define FLASH_UNLOCK_SECURE					0xA5
@@ -999,8 +998,8 @@ static int qpnp_flash_led_module_disable(struct qpnp_flash_led *led,
 			}
 			led->gpio_enabled = false;
 		}
-		/*zhangjiano modify for flash dead circulation  20160325*/
-		/*if (led->battery_psy) {
+
+		if (led->battery_psy) {
 			psy_prop.intval = false;
 			rc = led->battery_psy->set_property(led->battery_psy,
 						POWER_SUPPLY_PROP_FLASH_ACTIVE,
@@ -1010,7 +1009,7 @@ static int qpnp_flash_led_module_disable(struct qpnp_flash_led *led,
 				"Failed to setup OTG pulse skip enable\n");
 				return -EINVAL;
 			}
-		}*/
+		}
 	}
 
 	if (flash_node->trigger & FLASH_LED0_TRIGGER) {
@@ -1179,29 +1178,30 @@ static void qpnp_flash_led_work(struct work_struct *work)
 	struct qpnp_flash_led *led =
 			dev_get_drvdata(&flash_node->spmi_dev->dev);
 	union power_supply_propval psy_prop;
-	int rc, brightness = flash_node->cdev.brightness;
+	int rc, brightness;
 	int max_curr_avail_ma = 0;
 	int total_curr_ma = 0;
 	int i;
 	u8 val;
 
+	/* Global lock is to synchronize between the flash leds and torch */
 	mutex_lock(&led->flash_led_lock);
+	/* Local lock is to synchronize for one led instance */
+	mutex_lock(&flash_node->cdev.led_access);
 
+	brightness = flash_node->cdev.brightness;
 	if (!brightness)
 		goto turn_off;
 
 	if (led->open_fault) {
 		dev_err(&led->spmi_dev->dev, "Open fault detected\n");
-		mutex_unlock(&led->flash_led_lock);
-		return;
+		goto unlock_mutex;
 	}
 
 	if (!flash_node->flash_on && flash_node->num_regulators > 0) {
 		rc = flash_regulator_enable(led, flash_node, true);
-		if (rc) {
-			mutex_unlock(&led->flash_led_lock);
-			return;
-		}
+		if (rc)
+			goto unlock_mutex;
 	}
 
 	if (!led->gpio_enabled && led->pinctrl) {
@@ -1407,8 +1407,8 @@ static void qpnp_flash_led_work(struct work_struct *work)
 			max_curr_avail_ma += flash_node->max_current;
 		if (flash_node->trigger & FLASH_LED1_TRIGGER)
 			max_curr_avail_ma += flash_node->max_current;
-		/*zhangjiano modify for flash dead circulation 20160325*/
-		/*psy_prop.intval = true;
+
+		psy_prop.intval = true;
 		if (led->battery_psy) {
 			rc = led->battery_psy->set_property(led->battery_psy,
 						POWER_SUPPLY_PROP_FLASH_ACTIVE,
@@ -1422,7 +1422,7 @@ static void qpnp_flash_led_work(struct work_struct *work)
 			dev_err(&led->spmi_dev->dev,
 					"led->battery_psy is NULL\n");
 			goto exit_flash_led_work;
-		}*/
+		}
 
 		if (led->pdata->power_detect_en ||
 					led->pdata->die_current_derate_en) {
@@ -1657,6 +1657,8 @@ static void qpnp_flash_led_work(struct work_struct *work)
 	}
 
 	flash_node->flash_on = true;
+unlock_mutex:
+	mutex_unlock(&flash_node->cdev.led_access);
 	mutex_unlock(&led->flash_led_lock);
 
 	return;
@@ -1725,15 +1727,15 @@ exit_flash_hdrm_sns:
 	}
 exit_flash_led_work:
 	rc = qpnp_flash_led_module_disable(led, flash_node);
-	if (rc) {
+	if (rc)
 		dev_err(&led->spmi_dev->dev, "Module disable failed\n");
-		goto exit_flash_led_work;
-	}
+
 error_enable_gpio:
 	if (flash_node->flash_on && flash_node->num_regulators > 0)
 		flash_regulator_enable(led, flash_node, false);
 
 	flash_node->flash_on = false;
+	mutex_unlock(&flash_node->cdev.led_access);
 	mutex_unlock(&led->flash_led_lock);
 
 	return;

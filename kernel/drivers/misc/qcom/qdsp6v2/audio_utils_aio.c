@@ -1,6 +1,6 @@
 /* Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2009-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2016, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -204,7 +204,7 @@ static int audio_aio_pause(struct q6audio_aio  *audio)
 
 static int audio_aio_flush(struct q6audio_aio  *audio)
 {
-	int rc;
+	int rc = 0;
 
 	if (audio->enabled) {
 		/* Implicitly issue a pause to the decoder before flushing if
@@ -241,7 +241,7 @@ static int audio_aio_flush(struct q6audio_aio  *audio)
 			__func__, audio, atomic_read(&audio->in_samples));
 	atomic_set(&audio->in_bytes, 0);
 	atomic_set(&audio->in_samples, 0);
-	return 0;
+	return rc;
 }
 
 static int audio_aio_outport_flush(struct q6audio_aio *audio)
@@ -692,7 +692,7 @@ static int audio_aio_events_pending(struct q6audio_aio *audio)
 	spin_lock_irqsave(&audio->event_queue_lock, flags);
 	empty = !list_empty(&audio->event_queue);
 	spin_unlock_irqrestore(&audio->event_queue_lock, flags);
-	return empty || audio->event_abort;
+	return empty || audio->event_abort || audio->reset_event;
 }
 
 static long audio_aio_process_event_req_common(struct q6audio_aio *audio,
@@ -719,6 +719,12 @@ static long audio_aio_process_event_req_common(struct q6audio_aio *audio,
 	}
 	if (rc < 0)
 		return rc;
+
+	if (audio->reset_event) {
+		audio->reset_event = false;
+		pr_err("In SSR, post ENETRESET err\n");
+		return -ENETRESET;
+	}
 
 	if (audio->event_abort) {
 		audio->event_abort = 0;
@@ -1318,7 +1324,6 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 	spin_lock_init(&audio->event_queue_lock);
 	init_waitqueue_head(&audio->cmd_wait);
 	init_waitqueue_head(&audio->write_wait);
-	init_waitqueue_head(&audio->event_wait);
 	INIT_LIST_HEAD(&audio->out_queue);
 	INIT_LIST_HEAD(&audio->in_queue);
 	INIT_LIST_HEAD(&audio->ion_region_queue);
@@ -1327,6 +1332,7 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 
 	audio->drv_ops.out_flush(audio);
 	audio->opened = 1;
+	audio->reset_event = false;
 	file->private_data = audio;
 	audio->codec_ioctl = audio_aio_ioctl;
 	audio->codec_compat_ioctl = audio_aio_compat_ioctl;
@@ -1936,6 +1942,7 @@ static long audio_aio_compat_ioctl(struct file *file, unsigned int cmd,
 	case AUDIO_GET_CONFIG_32: {
 		struct msm_audio_config32 cfg_32;
 		mutex_lock(&audio->lock);
+		memset(&cfg_32, 0, sizeof(cfg_32));
 		cfg_32.buffer_size = audio->pcm_cfg.buffer_size;
 		cfg_32.buffer_count = audio->pcm_cfg.buffer_count;
 		cfg_32.channel_count = audio->pcm_cfg.channel_count;

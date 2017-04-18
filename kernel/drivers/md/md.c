@@ -4669,7 +4669,7 @@ static int md_alloc(dev_t dev, char *name)
 	disk->fops = &md_fops;
 	disk->private_data = mddev;
 	disk->queue = mddev->queue;
-    blk_queue_write_cache(mddev->queue, true, true);
+	blk_queue_flush(mddev->queue, REQ_FLUSH | REQ_FUA);
 	/* Allow extended partitions.  This makes the
 	 * 'mdp' device redundant, but we can't really
 	 * remove it now.
@@ -7560,8 +7560,7 @@ static int remove_and_add_spares(struct mddev *mddev,
 		       !test_bit(Bitmap_sync, &rdev->flags)))
 			continue;
 
-		if (rdev->saved_raid_disk < 0)
-			rdev->recovery_offset = 0;
+		rdev->recovery_offset = 0;
 		if (mddev->pers->
 		    hot_add_disk(mddev, rdev) == 0) {
 			if (sysfs_link_rdev(mddev, rdev))

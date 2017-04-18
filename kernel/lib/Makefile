@@ -146,7 +146,7 @@ obj-$(CONFIG_GLOB) += glob.o
 obj-$(CONFIG_MPILIB) += mpi/
 obj-$(CONFIG_SIGNATURE) += digsig.o
 
-obj-$(CONFIG_CLZ_TAB) += clz_tab.o
+lib-$(CONFIG_CLZ_TAB) += clz_tab.o
 
 obj-$(CONFIG_DDR) += jedec_ddr_data.o
 
@@ -156,8 +156,6 @@ obj-$(CONFIG_GENERIC_STRNLEN_USER) += strnlen_user.o
 obj-$(CONFIG_GENERIC_NET_UTILS) += net_utils.o
 
 obj-$(CONFIG_STMP_DEVICE) += stmp_device.o
-
-obj-$(CONFIG_WBT) += wbt.o
 
 libfdt_files = fdt.o fdt_ro.o fdt_wip.o fdt_rw.o fdt_sw.o fdt_strerror.o \
 	       fdt_empty_tree.o

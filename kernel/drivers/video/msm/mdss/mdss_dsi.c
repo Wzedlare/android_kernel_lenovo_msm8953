@@ -97,17 +97,6 @@ static void mdss_dsi_pm_qos_update_request(int val)
 static int mdss_dsi_pinctrl_set_state(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 					bool active);
 
-static int mdss_dsi_hndl_enable_te(struct mdss_dsi_ctrl_pdata *ctrl,
-				int enable)
-{
-	if (enable)
-		mdss_dsi_set_tear_on(ctrl);
-	else
-		mdss_dsi_set_tear_off(ctrl);
-
-	return 0;
-}
-
 static struct mdss_dsi_ctrl_pdata *mdss_dsi_get_ctrl(u32 ctrl_id)
 {
 	if (ctrl_id >= DSI_CTRL_MAX || !mdss_dsi_res)
@@ -1142,7 +1131,6 @@ static int mdss_dsi_off(struct mdss_panel_data *pdata, int power_state)
 
 	pr_debug("%s+: ctrl=%p ndx=%d power_state=%d\n",
 		__func__, ctrl_pdata, ctrl_pdata->ndx, power_state);
-	pr_info("%s[%d]+.\n", __func__, ctrl_pdata->ndx);
 
 	if (power_state == panel_info->panel_power_state) {
 		pr_debug("%s: No change in power state %d -> %d\n", __func__,
@@ -1299,8 +1287,6 @@ static int mdss_dsi_update_panel_config(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 	ctrl_pdata->panel_mode = pinfo->mipi.mode;
 	mdss_panel_get_dst_fmt(pinfo->bpp, pinfo->mipi.mode,
 			pinfo->mipi.pixel_packing, &(pinfo->mipi.dst_format));
-	pinfo->cont_splash_enabled = 0;
-
 	return ret;
 }
 
@@ -1326,7 +1312,6 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	cur_power_state = pdata->panel_info.panel_power_state;
 	pr_debug("%s+: ctrl=%p ndx=%d cur_power_state=%d\n", __func__,
 		ctrl_pdata, ctrl_pdata->ndx, cur_power_state);
-	pr_info("%s[%d]+.\n", __func__, ctrl_pdata->ndx);
 
 	pinfo = &pdata->panel_info;
 	mipi = &pdata->panel_info.mipi;
@@ -2050,6 +2035,13 @@ static int __mdss_dsi_dfps_update_clks(struct mdss_panel_data *pdata,
 		MIPI_OUTP((sctrl_pdata->ctrl_base) + DSI_DYNAMIC_REFRESH_CTRL,
 				0x00);
 
+	rc = mdss_dsi_phy_pll_reset_status(ctrl_pdata);
+	if (rc) {
+		pr_err("%s: pll cannot be locked reset core ready failed %d\n",
+			__func__, rc);
+		goto dfps_timeout;
+	}
+
 	__mdss_dsi_mask_dfps_errors(ctrl_pdata, false);
 	if (sctrl_pdata)
 		__mdss_dsi_mask_dfps_errors(sctrl_pdata, false);
@@ -2567,10 +2559,6 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 	case MDSS_EVENT_ENABLE_PARTIAL_ROI:
 		rc = mdss_dsi_ctl_partial_roi(pdata);
 		break;
-	case MDSS_EVENT_ENABLE_TE:
-		rc = mdss_dsi_hndl_enable_te(ctrl_pdata,
-				(int) (unsigned long) arg);
-		break;
 	case MDSS_EVENT_DSI_RESET_WRITE_PTR:
 		rc = mdss_dsi_reset_write_ptr(pdata);
 		break;
@@ -2672,33 +2660,6 @@ static struct device_node *mdss_dsi_pref_prim_panel(
 	return dsi_pan_node;
 }
 
-int mdss_dsi_ioctl_handler(struct mdss_panel_data *pdata, u32 cmd, void *arg)
-{
-	int rc = -ENOSYS;
-	struct msmfb_reg_access reg_access;
-
-	if (mdss_panel_is_power_off(pdata->panel_info.panel_power_state)) {
-		pr_err("%s: Panel is off\n", __func__);
-		return -EPERM;
-	}
-
-	switch (cmd) {
-	case MSMFB_REG_WRITE:
-	case MSMFB_REG_READ:
-		if (copy_from_user(&reg_access, arg, sizeof(reg_access)))
-			return -EFAULT;
-
-		rc = mdss_dsi_panel_ioctl_handler(pdata, cmd, arg);
-		break;
-	default:
-		pr_err("%s: unsupport ioctl =0x%x\n", __func__, cmd);
-		rc = -EFAULT;
-		break;
-	}
-
-	return rc;
-}
-
 /**
  * mdss_dsi_find_panel_of_node(): find device node of dsi panel
  * @pdev: platform_device of the dsi ctrl node
@@ -2727,6 +2688,7 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 	struct mdss_panel_info *pinfo = &ctrl_pdata->panel_data.panel_info;
 
 	len = strlen(panel_cfg);
+	ctrl_pdata->panel_data.dsc_cfg_np_name[0] = '\0';
 	if (!len) {
 		/* no panel cfg chg, parse dt */
 		pr_debug("%s:%d: no cmd line cfg present\n",
@@ -2810,18 +2772,11 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 					strlcpy(cfg_np_name, str2,
 						MDSS_MAX_PANEL_LEN);
 				}
-			}
-
-			pr_debug("%s: cfg_np_name:%s\n", __func__, cfg_np_name);
-			if (str2) {
-				ctrl_pdata->panel_data.cfg_np =
-					of_get_child_by_name(dsi_pan_node,
-					cfg_np_name);
-				if (!ctrl_pdata->panel_data.cfg_np)
-					pr_warn("%s: can't find config node:%s. either no such node or bad name\n",
-						__func__, cfg_np_name);
+				strlcpy(ctrl_pdata->panel_data.dsc_cfg_np_name,
+					cfg_np_name, MDSS_MAX_PANEL_LEN);
 			}
 		}
+
 		return dsi_pan_node;
 	}
 end:
@@ -2851,13 +2806,6 @@ static struct device_node *mdss_dsi_config_panel(struct platform_device *pdev,
 		pr_warn("%s:%d:dsi specific cfg not present\n",
 			__func__, __LINE__);
 
-	/* Parse panel config */
-	rc = mdss_panel_parse_panel_config_dt(ctrl_pdata);
-	if (rc) {
-		pr_err("%s: failed to parse panel config dt, rc = %d\n",
-								__func__, rc);
-		return NULL;
-	}
 	/* find panel device node */
 	dsi_pan_node = mdss_dsi_find_panel_of_node(pdev, panel_cfg);
 	if (!dsi_pan_node) {
@@ -3007,6 +2955,12 @@ static int mdss_dsi_cont_splash_config(struct mdss_panel_info *pinfo,
 			mdss_dsi_panel_pwm_enable(ctrl_pdata);
 		ctrl_pdata->ctrl_state |= (CTRL_STATE_PANEL_INIT |
 			CTRL_STATE_MDP_ACTIVE | CTRL_STATE_DSI_ACTIVE);
+
+		/*
+		 * MDP client removes this extra vote during splash reconfigure
+		 * for command mode panel from interface. DSI removes the vote
+		 * during suspend-resume for video mode panel.
+		 */
 		if (ctrl_pdata->panel_data.panel_info.type == MIPI_CMD_PANEL)
 			clk_handle = ctrl_pdata->mdp_clk_handle;
 		else
@@ -4137,10 +4091,6 @@ int dsi_panel_device_register(struct platform_device *ctrl_pdev,
 
 	pr_info("%s: Continuous splash %s\n", __func__,
 		pinfo->cont_splash_enabled ? "enabled" : "disabled");
-
-	if (pinfo->cont_splash_enabled &&
-		pinfo->forced_tx_mode_ftr_enabled)
-		mdss_dsi_panel_forced_tx_mode_set(pinfo, true);
 
 	rc = mdss_register_panel(ctrl_pdev, &(ctrl_pdata->panel_data));
 	if (rc) {

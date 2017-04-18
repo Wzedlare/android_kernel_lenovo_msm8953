@@ -184,6 +184,16 @@ config MSM_BOOT_STATS
 	 This figures are reported in mpm sleep clock cycles and have a
 	 resolution of 31 bits as 1 bit is used as an overflow check.
 
+config MSM_BOOT_TIME_MARKER
+	bool "Use MSM boot time marker reporting"
+	depends on MSM_BOOT_STATS
+	help
+	 Use this to mark msm boot kpi for measurement.
+	 An instrumentation for boot time measurement.
+	 To create an entry, call "place_marker" function.
+	 At userspace, write marker name to "/sys/kernel/debug/bootkpi/kpi_values"
+	 If unsure, say N
+
 config MSM_CPUSS_DUMP
 	bool "CPU Subsystem Dumping support"
 	help
@@ -731,6 +741,14 @@ config MSM_PERFORMANCE_HOTPLUG_ON
 	  compile out the nodes needed for core-control functionality through
 	  msm_performance.
 
+config MSM_POWER
+	tristate "Power driver to manage system resources"
+	help
+	  This driver monitors and manages system resources for better
+	  power efficiency. It keeps track of the current frequency of
+	  several resources (e.g. CPU and GPU) to manage other system
+	  resources (e.g. DDR frequency) more efficiently.
+
 config MSM_SERVICE_LOCATOR
 	bool "Service Locator"
 	depends on MSM_QMI_INTERFACE
@@ -794,19 +812,12 @@ config MSM_REMOTEQDSS
 	  enable/disable these events. Interface located in
 	  /sys/class/remoteqdss.
 
-config MMI_UNIT_INFO
-	default n
-	bool "Motorola Mobility Unit Info"
+config QCOM_SMCINVOKE
+	bool "Secure QSEE Support"
 	help
-	Provide mechanism to expose unit information to other cpu via smem.
-
-config MMI_RAM_INFO
-	default n
-	bool "Motorola Mobility RAM Info"
-	help
-	Provide mechanism to access RAM size and MR registers values via sysfs.
+	  Enable SMCInvoke driver which supports capability based secure
+	  communication between QSEE and HLOS.
 
 source "drivers/soc/qcom/memshare/Kconfig"
-source "drivers/soc/qcom/unlock_bl/Kconfig"
 
 endif # ARCH_MSM

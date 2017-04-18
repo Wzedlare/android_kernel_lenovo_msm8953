@@ -25,7 +25,6 @@
 #include <linux/utsname.h>
 #include <linux/platform_device.h>
 #include <linux/pm_qos.h>
-#include <linux/reboot.h>
 #include <linux/of.h>
 
 #include <linux/usb/ch9.h>
@@ -70,7 +69,6 @@
 #include "u_qc_ether.c"
 #include "f_gsi.c"
 #include "f_mass_storage.h"
-#include "f_usbnet.c"
 
 USB_ETHERNET_MODULE_PARAMETERS();
 #include "debug.h"
@@ -215,8 +213,6 @@ struct android_dev {
 
 	/* A list node inside the android_dev_list */
 	struct list_head list_item;
-	/* reboot notifier */
-	 struct notifier_block android_reboot;
 };
 
 struct android_configuration {
@@ -536,6 +532,7 @@ static void android_disable(struct android_dev *dev)
 	struct android_configuration *conf;
 
 	if (dev->disable_depth++ == 0) {
+		usb_gadget_autopm_get(cdev->gadget);
 		if (gadget_is_dwc3(cdev->gadget)) {
 			/* Cancel pending control requests */
 			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
@@ -554,6 +551,7 @@ static void android_disable(struct android_dev *dev)
 			list_for_each_entry(conf, &dev->configs, list_item)
 				usb_remove_config(cdev, &conf->usb_config);
 		}
+		usb_gadget_autopm_put_async(cdev->gadget);
 	}
 }
 
@@ -942,7 +940,6 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 	static int rmnet_initialized, ports;
 
 	if (!rmnet_initialized) {
-		rmnet_initialized = 1;
 		strlcpy(buf, rmnet_transports, sizeof(buf));
 		b = strim(buf);
 
@@ -971,8 +968,11 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 		err = rmnet_gport_setup();
 		if (err) {
 			pr_err("rmnet: Cannot setup transports");
+			frmnet_deinit_port();
+			ports = 0;
 			goto out;
 		}
+		rmnet_initialized = 1;
 	}
 
 	for (i = 0; i < ports; i++) {
@@ -2609,11 +2609,6 @@ static int mass_storage_function_init(struct android_usb_function *f,
 	}
 
 	fsg_mod_data.removable[0] = true;
-
-//lenovo sw yexh1, add for usb cdrom feature
-	fsg_mod_data.cdrom[0] = true;
-//lenovo sw yexh1, end
-
 	fsg_config_from_params(&m_config, &fsg_mod_data, fsg_num_buffers);
 	fsg_opts = fsg_opts_from_func_inst(config->f_ms_inst);
 	ret = fsg_common_set_num_buffers(fsg_opts->common, fsg_num_buffers);
@@ -3047,89 +3042,6 @@ static struct android_usb_function dpl_gsi_function = {
 	.bind_config	= dpl_gsi_function_bind_config,
 };
 
-static int usbnet_function_init(struct android_usb_function *f,
-				struct usb_composite_dev *cdev)
-{
-	struct usbnet_device *dev;
-	struct usbnet_context *context;
-	struct net_device *net_dev;
-	int ret;
-
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-	if (!dev)
-		return -ENOMEM;
-
-	net_dev = alloc_netdev(sizeof(struct usbnet_context),
-			   "usb%d", NET_NAME_UNKNOWN, usb_ether_setup);
-	if (!net_dev) {
-		pr_err("%s: alloc_netdev error\n", __func__);
-		return -EINVAL;
-	}
-
-	ret = register_netdev(net_dev);
-	if (ret) {
-		pr_err("%s: register_netdev error\n", __func__);
-		free_netdev(net_dev);
-		return -EINVAL;
-	}
-
-	ret = device_create_file(&net_dev->dev, &dev_attr_description);
-	if (ret < 0) {
-		pr_err("%s: sys file creation  error\n", __func__);
-		unregister_netdev(net_dev);
-		free_netdev(net_dev);
-		return -EINVAL;
-	}
-
-	context = netdev_priv(net_dev);
-	INIT_WORK(&context->usbnet_config_wq, usbnet_if_config);
-
-	context->config = 0;
-	dev->net_ctxt = context;
-
-	f->config = dev;
-
-#ifdef CONFIG_SWITCH
-	switch_dev_register(&usbnet_enable_device);
-#endif
-	return 0;
-}
-
-static void usbnet_function_cleanup(struct android_usb_function *f)
-{
-	struct usbnet_device *dev = f->config;
-
-	usbnet_cleanup(dev);
-#ifdef CONFIG_SWITCH
-	switch_dev_unregister(&usbnet_enable_device);
-#endif
-}
-
-static int usbnet_function_bind_config(struct android_usb_function *f,
-		struct usb_configuration *c)
-{
-	struct usbnet_device *dev = f->config;
-
-	return usbnet_bind_config(dev, c);
-}
-
-static int usbnet_function_ctrlrequest(struct android_usb_function *f,
-					struct usb_composite_dev *cdev,
-					const struct usb_ctrlrequest *c)
-{
-	struct usbnet_device *dev = f->config;
-
-	return usbnet_ctrlrequest(dev, cdev, c);
-}
-
-static struct android_usb_function usbnet_function = {
-	.name		= "usbnet",
-	.init		= usbnet_function_init,
-	.cleanup	= usbnet_function_cleanup,
-	.bind_config	= usbnet_function_bind_config,
-	.ctrlrequest	= usbnet_function_ctrlrequest,
-};
-
 static struct android_usb_function *supported_functions[] = {
 	[ANDROID_FFS] = &ffs_function,
 	[ANDROID_MBIM_BAM] = &mbim_function,
@@ -3192,7 +3104,6 @@ static struct android_usb_function *default_functions[] = {
 #ifdef CONFIG_SND_RAWMIDI
 	&midi_function,
 #endif
-	&usbnet_function,
 	NULL
 };
 
@@ -3259,6 +3170,7 @@ static int android_init_functions(struct android_usb_function **functions,
 			* index 1 is for android1 device
 			*/
 
+	cdev->use_os_string = true;
 	for (; (f = *functions++); index++) {
 		f->dev_name = kasprintf(GFP_KERNEL, "f_%s", f->name);
 		f->android_dev = NULL;
@@ -3506,10 +3418,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 	strlcpy(buf, buff, sizeof(buf));
 	b = strim(buf);
-
-//lenovo sw yexh1 add for print usb composite setting
-       pr_info("usb: %s\n", buff);
-//lenovo sw yexh1 add end
 
 	while (b) {
 		conf_str = strsep(&b, ":");
@@ -4162,52 +4070,6 @@ static int usb_diag_update_pid_and_serial_num(u32 pid, const char *snum)
 	return 0;
 }
 
-/* chenyb1 add factory feature begin*/
-static bool is_mmi_factory(void)
-{
-	struct device_node *np = of_find_node_by_path("/chosen");
-	bool fact_cable = false;
-
-	if (np)
-		fact_cable = of_property_read_bool(np, "mmi,factory-cable");
-
-	of_node_put(np);
-	return fact_cable;
-}
-
-static void configure_mmi_factory(struct platform_device *pdev,
-		struct android_usb_platform_data *pdata)
-{
-	int prop_len = 0;
-	if (is_mmi_factory()) {
-		of_get_property(pdev->dev.of_node,
-				"mmi,pm-qos-latency-factory",
-				&prop_len);
-		if (prop_len == sizeof(pdata->pm_qos_latency)) {
-			pr_info("Overwrite pm_qos latency with factory mode\n");
-			of_property_read_u32_array(pdev->dev.of_node,
-				"mmi,pm-qos-latency-factory",
-				pdata->pm_qos_latency,
-				prop_len/sizeof(*pdata->pm_qos_latency));
-		} else {
-			pr_info("pm_qos latency for factory not specified\n");
-		}
-	}
-}
-
-static int android_reboot_notifier(struct notifier_block *nb,
-				unsigned long event,
-				void *unused)
-{
-	struct android_dev *dev =
-		container_of(nb, struct android_dev, android_reboot);
-	pr_err("Android reboot  - de-enumerate\n");
-	if (event == SYS_POWER_OFF)
-		usb_gadget_disconnect(dev->cdev->gadget);
-	return NOTIFY_DONE;
-}
-/* chenyb1 add factory feature end*/
-
 static int android_probe(struct platform_device *pdev)
 {
 	struct android_usb_platform_data *pdata;
@@ -4234,10 +4096,6 @@ static int android_probe(struct platform_device *pdev)
 		} else {
 			pr_info("pm_qos latency not specified %d\n", prop_len);
 		}
-
-/* chenyb1 add factory feature begin*/
-		configure_mmi_factory(pdev, pdata);
-/* chenyb1 add factory feature end*/
 
 		ret = of_property_read_u32(pdev->dev.of_node,
 					"qcom,usb-core-id",
@@ -4362,15 +4220,6 @@ static int android_probe(struct platform_device *pdev)
 	}
 	strlcpy(android_dev->pm_qos, "high", sizeof(android_dev->pm_qos));
 
-	if (is_mmi_factory()) {
-		android_dev->android_reboot.notifier_call =
-						android_reboot_notifier;
-		android_dev->android_reboot.next = NULL;
-		android_dev->android_reboot.priority = 2;
-		ret = register_reboot_notifier(&android_dev->android_reboot);
-		if (ret)
-			dev_err(&pdev->dev, "register for reboot failed\n");
-	}
 	return ret;
 err_probe:
 	android_destroy_device(android_dev);

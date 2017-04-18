@@ -131,6 +131,7 @@ static void __maybe_unused gic_write_pmr(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_PMR_EL1) ", %0" : : "r" (val));
 	/* As per the architecture specification */
+	isb();
 	mb();
 }
 
@@ -150,6 +151,7 @@ static void __maybe_unused gic_write_sgi1r(u64 val)
 {
 	asm volatile("msr_s " __stringify(ICC_SGI1R_EL1) ", %0" : : "r" (val));
 	/* As per the architecture specification */
+	isb();
 	mb();
 }
 
@@ -357,11 +359,6 @@ static int gic_suspend(void)
 
 static void gic_show_resume_irq(struct gic_chip_data *gic)
 {
-	//chenyb1, 20130619, Add log to show wakeup interrupts begin
-	#ifdef CONFIG_LENOVO_PM_LOG
-	extern int save_irq_wakeup_gpio(int irq, int gpio);
-	#endif //#ifdef CONFIG_LENOVO_PM_LOG
-	//chenyb1, 20130619, Add log to show wakeup interrupts end
 	unsigned int i;
 	u32 enabled;
 	u32 pending[32];
@@ -389,11 +386,6 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 			name = desc->action->name;
 
 		pr_warn("%s: %d triggered %s\n", __func__, irq, name);
-		//chenyb1, 20130619, Add log to show wakeup interrupts begin
-		#ifdef CONFIG_LENOVO_PM_LOG
-		save_irq_wakeup_gpio(irq, 0);
-		#endif //#ifdef CONFIG_LENOVO_PM_LOG
-		//chenyb1, 20130619, Add log to show wakeup interrupts end		
 	}
 }
 

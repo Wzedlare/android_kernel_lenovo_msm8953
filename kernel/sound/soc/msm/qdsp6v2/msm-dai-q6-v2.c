@@ -1151,6 +1151,7 @@ static int msm_dai_q6_spdif_hw_params(struct snd_pcm_substream *substream,
 		dai_data->spdif_port.cfg.bit_width = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
+	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->spdif_port.cfg.bit_width = 24;
 		break;
 	default:
@@ -1368,6 +1369,7 @@ static int msm_dai_q6_cdc_hw_params(struct snd_pcm_hw_params *params,
 		dai_data->port_config.i2s.bit_width = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
+	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->port_config.i2s.bit_width = 24;
 		break;
 	default:
@@ -1447,6 +1449,7 @@ static int msm_dai_q6_slim_bus_hw_params(struct snd_pcm_hw_params *params,
 		dai_data->port_config.slim_sch.bit_width = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
+	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->port_config.slim_sch.bit_width = 24;
 		break;
 	case SNDRV_PCM_FORMAT_S32_LE:
@@ -2602,7 +2605,8 @@ static struct snd_soc_dai_driver msm_dai_q6_slimbus_tx_dai[] = {
 			SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_96000 |
 			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
-				   SNDRV_PCM_FMTBIT_S24_LE,
+				   SNDRV_PCM_FMTBIT_S24_LE |
+				   SNDRV_PCM_FMTBIT_S24_3LE,
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -2621,7 +2625,8 @@ static struct snd_soc_dai_driver msm_dai_q6_slimbus_tx_dai[] = {
 			SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000 |
 			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
-				   SNDRV_PCM_FMTBIT_S24_LE,
+				   SNDRV_PCM_FMTBIT_S24_LE |
+				   SNDRV_PCM_FMTBIT_S24_3LE,
 			.channels_min = 1,
 			.channels_max = 2,
 			.rate_min = 8000,
@@ -3086,6 +3091,7 @@ static int msm_dai_q6_mi2s_hw_params(struct snd_pcm_substream *substream,
 		dai_data->bitwidth = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
+	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->port_config.i2s.bit_width = 24;
 		dai_data->bitwidth = 24;
 		break;
@@ -3188,10 +3194,6 @@ static int msm_dai_q6_mi2s_hw_free(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-/* lenovo-sw zhangrc2, 2016-05-31,add for quat mi2s control */
-extern atomic_t quin_mi2s_clk_ref;
-/* lenovo-sw zhangrc2, 2016-05-31,add for quat mi2s control */
-
 static void msm_dai_q6_mi2s_shutdown(struct snd_pcm_substream *substream,
 				     struct snd_soc_dai *dai)
 {
@@ -3210,26 +3212,8 @@ static void msm_dai_q6_mi2s_shutdown(struct snd_pcm_substream *substream,
 				__func__, port_id);
 	}
 
-
-/* lenovo-sw zhangrc2, 2016-05-31,add for quat mi2s control */
-	if ((atomic_read(&quin_mi2s_clk_ref) >= 1) && (port_id == AFE_PORT_ID_QUINARY_MI2S_RX)) {
-		printk(KERN_DEBUG "[%s]quat_mi2s_clk_ref is using...port_id=%#x\n", __func__, port_id);
-		if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
-			clear_bit(STATUS_PORT_STARTED, dai_data->status_mask);
-		}
-
-		if (test_bit(STATUS_PORT_STARTED, dai_data->hwfree_status)) {
-	       clear_bit(STATUS_PORT_STARTED, dai_data->hwfree_status);
-		}
-		return;
-	}
-/* lenovo-sw zhangrc2, 2016-05-31,add for quat mi2s control */
-	
-
 	dev_dbg(dai->dev, "%s: closing afe port id = 0x%x\n",
 			__func__, port_id);
-
-	
 
 	if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
 		rc = afe_close(port_id);
@@ -3260,7 +3244,8 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_96000 |
 			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
-				SNDRV_PCM_FMTBIT_S24_LE,
+				SNDRV_PCM_FMTBIT_S24_LE |
+				SNDRV_PCM_FMTBIT_S24_3LE,
 			.rate_min =     8000,
 			.rate_max =     192000,
 		},
@@ -3283,10 +3268,11 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.stream_name = "Secondary MI2S Playback",
 			.aif_name = "SEC_MI2S_RX",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
-			SNDRV_PCM_RATE_16000,
+			SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_96000 |
+			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.rate_min =     8000,
-			.rate_max =     48000,
+			.rate_max =     192000,
 		},
 		.capture = {
 			.stream_name = "Secondary MI2S Capture",
@@ -3331,10 +3317,11 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.stream_name = "Quaternary MI2S Playback",
 			.aif_name = "QUAT_MI2S_RX",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
-			SNDRV_PCM_RATE_16000,
+			SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_96000 |
+			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.rate_min =     8000,
-			.rate_max =     48000,
+			.rate_max =     192000,
 		},
 		.capture = {
 			.stream_name = "Quaternary MI2S Capture",
@@ -3367,10 +3354,11 @@ static struct snd_soc_dai_driver msm_dai_q6_mi2s_dai[] = {
 			.stream_name = "Quinary MI2S Playback",
 			.aif_name = "QUIN_MI2S_RX",
 			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
-			SNDRV_PCM_RATE_16000,
+			SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_96000 |
+			SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE,
 			.rate_min =     8000,
-			.rate_max =     48000,
+			.rate_max =     192000,
 		},
 		.capture = {
 			.stream_name = "Quinary MI2S Capture",
@@ -5325,6 +5313,7 @@ static int msm_dai_q6_tdm_hw_params(struct snd_pcm_substream *substream,
 		dai_data->bitwidth = 16;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
+	case SNDRV_PCM_FORMAT_S24_3LE:
 		dai_data->bitwidth = 24;
 		break;
 	case SNDRV_PCM_FORMAT_S32_LE:

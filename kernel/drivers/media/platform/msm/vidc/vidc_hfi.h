@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -224,7 +224,8 @@ struct hfi_extradata_header {
 	(HFI_PROPERTY_PARAM_VDEC_OX_START + 0x001D)
 #define HFI_PROPERTY_PARAM_VDEC_MASTERING_DISPLAY_COLOUR_SEI_EXTRADATA \
 	(HFI_PROPERTY_PARAM_VDEC_OX_START + 0x001E)
-
+#define HFI_PROPERTY_PARAM_VDEC_CONTENT_LIGHT_LEVEL_SEI_EXTRADATA \
+	(HFI_PROPERTY_PARAM_VDEC_OX_START + 0x001F)
 
 #define HFI_PROPERTY_CONFIG_VDEC_OX_START				\
 	(HFI_DOMAIN_BASE_VDEC + HFI_ARCH_OX_OFFSET + 0x4000)
@@ -367,6 +368,7 @@ struct hfi_hybrid_hierp {
 #define HFI_RATE_CONTROL_CBR_CFR	(HFI_OX_BASE + 0x5)
 #define HFI_RATE_CONTROL_MBR_CFR	(HFI_OX_BASE + 0x6)
 #define HFI_RATE_CONTROL_MBR_VFR	(HFI_OX_BASE + 0x7)
+
 
 struct hfi_uncompressed_plane_actual_constraints_info {
 	u32 buffer_type;

@@ -47,6 +47,40 @@
 
 #define MAX_SUPPORTED_INSTANCES 16
 
+const char *const mpeg_video_vidc_extradata[] = {
+	"Extradata none",
+	"Extradata MB Quantization",
+	"Extradata Interlace Video",
+	"Extradata VC1 Framedisp",
+	"Extradata VC1 Seqdisp",
+	"Extradata timestamp",
+	"Extradata S3D Frame Packing",
+	"Extradata Frame Rate",
+	"Extradata Panscan Window",
+	"Extradata Recovery point SEI",
+	"Extradata Multislice info",
+	"Extradata number of concealed MB",
+	"Extradata metadata filler",
+	"Extradata input crop",
+	"Extradata digital zoom",
+	"Extradata aspect ratio",
+	"Extradata mpeg2 seqdisp",
+	"Extradata stream userdata",
+	"Extradata frame QP",
+	"Extradata frame bits info",
+	"Extradata LTR",
+	"Extradata macroblock metadata",
+	"Extradata VQZip SEI",
+	"Extradata YUV Stats",
+	"Extradata ROI QP",
+	"Extradata output crop",
+	"Extradata display colour SEI",
+	"Extradata light level SEI",
+	"Extradata display VUI",
+	"Extradata vpx color space",
+	"Extradata PQ Info",
+};
+
 struct getprop_buf {
 	struct list_head list;
 	void *data;
@@ -246,7 +280,8 @@ enum multi_stream msm_comm_get_stream_output_mode(struct msm_vidc_inst *inst)
 static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
 {
 	int output_port_mbs, capture_port_mbs;
-	int fps, rc;
+	int rc;
+	u32 fps;
 	struct v4l2_control ctrl;
 
 	output_port_mbs = NUM_MBS_PER_FRAME(inst->prop.width[OUTPUT_PORT],
@@ -258,6 +293,11 @@ static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
 	rc = msm_comm_g_ctrl(inst, &ctrl);
 	if (!rc && ctrl.value) {
 		fps = (ctrl.value >> 16) ? ctrl.value >> 16 : 1;
+		/*
+		 * Check if operating rate is less than fps.
+		 * If Yes, then use fps to scale the clocks
+		*/
+		fps = max(fps, inst->prop.fps);
 		return max(output_port_mbs, capture_port_mbs) * fps;
 	} else
 		return max(output_port_mbs, capture_port_mbs) * inst->prop.fps;
@@ -675,7 +715,7 @@ static void handle_sys_init_done(enum hal_command_response cmd, void *data)
 	return;
 }
 
-static void put_inst(struct msm_vidc_inst *inst)
+void put_inst(struct msm_vidc_inst *inst)
 {
 	void put_inst_helper(struct kref *kref)
 	{
@@ -691,7 +731,7 @@ static void put_inst(struct msm_vidc_inst *inst)
 	kref_put(&inst->kref, put_inst_helper);
 }
 
-static struct msm_vidc_inst *get_inst(struct msm_vidc_core *core,
+struct msm_vidc_inst *get_inst(struct msm_vidc_core *core,
 		void *session_id)
 {
 	struct msm_vidc_inst *inst = NULL;
@@ -1170,7 +1210,8 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			"V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT due to bit-depth change\n");
 	}
 
-	if (inst->pic_struct != event_notify->pic_struct) {
+	if (inst->fmts[CAPTURE_PORT]->fourcc == V4L2_PIX_FMT_NV12 &&
+		inst->pic_struct != event_notify->pic_struct) {
 		inst->pic_struct = event_notify->pic_struct;
 		event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
 		ptr[2] |= V4L2_EVENT_PICSTRUCT_FLAG;
@@ -1195,6 +1236,8 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			inst->prop.height[OUTPUT_PORT] = event_notify->height;
 			inst->prop.width[OUTPUT_PORT] = event_notify->width;
 	}
+
+	inst->seqchanged_count++;
 
 	if (inst->session_type == MSM_VIDC_DECODER)
 		msm_dcvs_init_load(inst);
@@ -1950,8 +1993,7 @@ static void handle_fbd(enum hal_command_response cmd, void *data)
 				vb->v4l2_planes[0].bytesused,
 				vb->v4l2_planes[0].length);
 		if (!(fill_buf_done->flags1 &
-			HAL_BUFFERFLAG_TIMESTAMPINVALID) &&
-			fill_buf_done->filled_len1) {
+			HAL_BUFFERFLAG_TIMESTAMPINVALID)) {
 			time_usec = fill_buf_done->timestamp_hi;
 			time_usec = (time_usec << 32) |
 				fill_buf_done->timestamp_lo;
@@ -2936,6 +2978,7 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 	struct hal_buffer_requirements *output_buf, *extradata_buf;
 	int i;
 	struct hfi_device *hdev;
+	struct hal_buffer_size_minimum b;
 
 	hdev = inst->core->device;
 
@@ -2952,6 +2995,11 @@ static int set_output_buffers(struct msm_vidc_inst *inst,
 		output_buf->buffer_size);
 
 	buffer_size = output_buf->buffer_size;
+	b.buffer_type = buffer_type;
+	b.buffer_size = buffer_size;
+	rc = call_hfi_op(hdev, session_set_property,
+		inst->session, HAL_PARAM_BUFFER_SIZE_MINIMUM,
+		&b);
 
 	extradata_buf = get_buff_req_buffer(inst, HAL_BUFFER_EXTRADATA_OUTPUT);
 	if (extradata_buf) {
@@ -4619,6 +4667,12 @@ enum hal_extradata_id msm_comm_get_hal_extradata_index(
 	case V4L2_MPEG_VIDC_EXTRADATA_OUTPUT_CROP:
 		ret = HAL_EXTRADATA_OUTPUT_CROP;
 		break;
+	case V4L2_MPEG_VIDC_EXTRADATA_DISPLAY_COLOUR_SEI:
+		ret = HAL_EXTRADATA_MASTERING_DISPLAY_COLOUR_SEI;
+		break;
+	case V4L2_MPEG_VIDC_EXTRADATA_CONTENT_LIGHT_LEVEL_SEI:
+		ret = HAL_EXTRADATA_CONTENT_LIGHT_LEVEL_SEI;
+		break;
 	case V4L2_MPEG_VIDC_EXTRADATA_VUI_DISPLAY:
 		ret = HAL_EXTRADATA_VUI_DISPLAY_INFO;
 		break;
@@ -4895,10 +4949,11 @@ int msm_comm_kill_session(struct msm_vidc_inst *inst)
 		if (rc == -EBUSY) {
 			msm_comm_generate_sys_error(inst);
 			return 0;
-		} else if (rc)
+		} else if (rc) {
 			return rc;
-
+		}
 		change_inst_state(inst, MSM_VIDC_CLOSE_DONE);
+		msm_comm_generate_session_error(inst);
 	} else {
 		dprintk(VIDC_WARN,
 				"Inactive session %pK, triggering an internal session error\n",

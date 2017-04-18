@@ -13,9 +13,8 @@
 
 &int_codec {
 	status = "okay";
-    qcom,model = "msm8953-snd-card-mtp";
-    jack-avdd-supply = <&pm8953_l22>; 
-	qcom,msm-hs-micbias-type = "external";
+	qcom,model = "msm8953-snd-card-mtp";
+	qcom,msm-hs-micbias-type = "internal";
 };
 
 &pm8953_diangu_dig {

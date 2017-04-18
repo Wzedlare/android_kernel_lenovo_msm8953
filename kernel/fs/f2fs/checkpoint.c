@@ -820,7 +820,7 @@ static void wait_on_all_pages_writeback(struct f2fs_sb_info *sbi)
 		if (!get_pages(sbi, F2FS_WRITEBACK))
 			break;
 
-		io_schedule_timeout(msecs_to_jiffies(5000));
+		io_schedule();
 	}
 	finish_wait(&sbi->cp_wait, &wait);
 }

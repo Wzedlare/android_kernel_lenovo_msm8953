@@ -73,6 +73,8 @@ static const char *const mpeg_video_rate_control[] = {
 	"VBR CFR",
 	"CBR VFR",
 	"CBR CFR",
+	"MBR CFR",
+	"MBR VFR",
 	NULL
 };
 
@@ -155,29 +157,6 @@ static const char *const vp8_profile_level[] = {
 	"1.0",
 	"2.0",
 	"3.0",
-};
-
-static const char *const mpeg_video_vidc_extradata[] = {
-	"Extradata none",
-	"Extradata MB Quantization",
-	"Extradata Interlace Video",
-	"Extradata VC1 Framedisp",
-	"Extradata VC1 Seqdisp",
-	"Extradata timestamp",
-	"Extradata S3D Frame Packing",
-	"Extradata Frame Rate",
-	"Extradata Panscan Window",
-	"Extradata Recovery point SEI",
-	"Extradata Closed Caption UD",
-	"Extradata AFD UD",
-	"Extradata Multislice info",
-	"Extradata number of concealed MB",
-	"Extradata metadata filler",
-	"Extradata input crop",
-	"Extradata digital zoom",
-	"Extradata aspect ratio",
-	"Extradata macroblock metadata",
-	"Extradata YUV Stats"
 };
 
 static const char *const perf_level[] = {
@@ -550,7 +529,8 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = 1,
 		.maximum = 128,
-		.default_value =1,
+		.default_value = 1,
+
 		.step = 1,
 	},
 	{
@@ -787,7 +767,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_METADATA_MBI) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_YUV_STATS)|
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_ROI_QP) |
-      (1 << V4L2_MPEG_VIDC_EXTRADATA_PQ_INFO)
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_PQ_INFO)
 			),
 		.qmenu = mpeg_video_vidc_extradata,
 	},
@@ -909,7 +889,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.name = "Ltr Mode",
 		.type = V4L2_CTRL_TYPE_INTEGER,
 		.minimum = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_DISABLE,
-		.maximum = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_PERIODIC,
+		.maximum = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_MANUAL,
 		.default_value = V4L2_MPEG_VIDC_VIDEO_LTR_MODE_DISABLE,
 		.step = 1,
 		.qmenu = NULL,
@@ -1252,6 +1232,7 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.minimum = V4L2_CID_MPEG_VIDC_VIDEO_LOWLATENCY_DISABLE,
 		.maximum = V4L2_CID_MPEG_VIDC_VIDEO_LOWLATENCY_ENABLE,
 		.default_value = V4L2_CID_MPEG_VIDC_VIDEO_LOWLATENCY_DISABLE,
+		.step = 1,
 	},
 	{
 		.id = V4L2_CID_MPEG_VIDC_VIDEO_BLUR_WIDTH,
@@ -1319,7 +1300,6 @@ static struct msm_vidc_ctrl msm_venc_ctrls[] = {
 		.default_value = V4L2_MPEG_VIDC_VIDEO_H264_TRANSFORM_8x8_ENABLE,
 		.step = 1,
 	},
-
 };
 
 static struct v4l2_ctrl *get_ctrl_from_cluster(int id,
@@ -1611,7 +1591,7 @@ static int msm_venc_queue_setup(struct vb2_queue *q,
 			case V4L2_MPEG_VIDC_EXTRADATA_ASPECT_RATIO:
 			case V4L2_MPEG_VIDC_EXTRADATA_YUV_STATS:
 			case V4L2_MPEG_VIDC_EXTRADATA_ROI_QP:
-      case V4L2_MPEG_VIDC_EXTRADATA_PQ_INFO:
+			case V4L2_MPEG_VIDC_EXTRADATA_PQ_INFO:
 				*num_planes = *num_planes + 1;
 				break;
 			default:
@@ -1683,52 +1663,6 @@ static int msm_venc_toggle_hier_p(struct msm_vidc_inst *inst, int layers)
 	if (rc) {
 		dprintk(VIDC_ERR,
 			"%s: failed with error = %d\n", __func__, rc);
-	}
-	return rc;
-}
-
-static int set_bitrate_for_each_layer(struct msm_vidc_inst *inst,
-				u32 num_enh_layers, u32 total_bitrate)
-{
-	u32 property_id = 0;
-	int i = 0, rc = 0;
-	struct hfi_device *hdev = NULL;
-	struct hal_bitrate bitrate;
-	struct hal_enable enable;
-	int bitrate_table[3][4] = {
-		{50, 50, 0, 0},
-		{34, 33, 33, 0},
-		{25, 25, 25, 25}
-	};
-
-	if (!inst || !inst->core || !inst->core->device) {
-		dprintk(VIDC_ERR, "%s - invalid input\n", __func__);
-		return -EINVAL;
-	}
-
-	if (!num_enh_layers || num_enh_layers > ARRAY_SIZE(bitrate_table)) {
-		dprintk(VIDC_ERR, "%s - invalid number of enh layers: %d\n",
-				__func__, num_enh_layers);
-		return -EINVAL;
-	}
-	hdev = inst->core->device;
-
-	property_id = HAL_PARAM_VENC_BITRATE_TYPE;
-	enable.enable = V4L2_CID_MPEG_VIDC_VIDEO_VENC_BITRATE_ENABLE;
-	rc = call_hfi_op(hdev, session_set_property,
-			(void *)inst->session, property_id, &enable);
-	if (rc) {
-		dprintk(VIDC_ERR, "Failed to set layerwise bitrate\n");
-		return false;
-	}
-
-	for (i = 0; !rc && i <= num_enh_layers; i++) {
-		property_id = HAL_CONFIG_VENC_TARGET_BITRATE;
-		bitrate.bit_rate = (u32)((total_bitrate *
-			bitrate_table[num_enh_layers - 1][i]) / 100);
-		bitrate.layer_id = i;
-		rc = call_hfi_op(hdev, session_set_property,
-				(void *)inst->session, property_id, &bitrate);
 	}
 	return rc;
 }
@@ -2295,7 +2229,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	int baselayerid = 0;
 	int frameqp = 0;
 	int pic_order_cnt = 0;
-  struct hal_video_signal_info signal_info = {0};
+	struct hal_video_signal_info signal_info = {0};
 
 	if (!inst || !inst->core || !inst->core->device) {
 		dprintk(VIDC_ERR, "%s invalid parameters\n", __func__);
@@ -2439,26 +2373,10 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	}
 	case V4L2_CID_MPEG_VIDEO_BITRATE:
 	{
-		struct v4l2_ctrl *hier_p = TRY_GET_CTRL(
-		   V4L2_CID_MPEG_VIDC_VIDEO_HIER_P_NUM_LAYERS);
-
+		property_id = HAL_CONFIG_VENC_TARGET_BITRATE;
+		bitrate.bit_rate = ctrl->val;
 		bitrate.layer_id = 0;
-		if (hier_p->val &&
-			inst->fmts[CAPTURE_PORT]->fourcc ==
-			V4L2_PIX_FMT_H264) {
-			rc = set_bitrate_for_each_layer(inst,
-						hier_p->val, ctrl->val);
-			if (rc) {
-				dprintk(VIDC_ERR,
-					"failed to set bitrate for multiple layers\n");
-				rc = -EINVAL;
-			}
-		} else {
-			property_id = HAL_CONFIG_VENC_TARGET_BITRATE;
-			bitrate.bit_rate = ctrl->val;
-			bitrate.layer_id = 0;
-			pdata = &bitrate;
-		}
+		pdata = &bitrate;
 		break;
 	}
 	case V4L2_CID_MPEG_VIDEO_BITRATE_PEAK:
@@ -2850,9 +2768,32 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	}
 	case V4L2_CID_MPEG_VIDC_VIDEO_INTRA_REFRESH_MODE: {
 		struct v4l2_ctrl *air_mbs, *air_ref, *cir_mbs;
+		bool is_cont_intra_supported = false;
+
 		air_mbs = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_AIR_MBS);
 		air_ref = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_AIR_REF);
 		cir_mbs = TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_CIR_MBS);
+
+		is_cont_intra_supported =
+		(inst->fmts[CAPTURE_PORT]->fourcc == V4L2_PIX_FMT_H264) ||
+		(inst->fmts[CAPTURE_PORT]->fourcc == V4L2_PIX_FMT_HEVC);
+
+		if (is_cont_intra_supported) {
+			if (air_mbs || air_ref || cir_mbs)
+				enable.enable = true;
+			else
+				enable.enable = false;
+
+			rc = call_hfi_op(hdev, session_set_property,
+				(void *)inst->session,
+				HAL_PARAM_VENC_CONSTRAINED_INTRA_PRED, &enable);
+			if (rc) {
+				dprintk(VIDC_ERR,
+					"Failed to set constrained intra\n");
+				rc = -EINVAL;
+				break;
+			}
+		}
 
 		property_id = HAL_PARAM_VENC_INTRA_REFRESH;
 
@@ -3292,7 +3233,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		signal_info.transfer_chars = temp_ctrl ? temp_ctrl->val : 0;
 		temp_ctrl =
 			TRY_GET_CTRL(V4L2_CID_MPEG_VIDC_VIDEO_MATRIX_COEFFS);
-  	signal_info.matrix_coeffs = temp_ctrl ? temp_ctrl->val : 0;
+		signal_info.matrix_coeffs = temp_ctrl ? temp_ctrl->val : 0;
 		property_id = HAL_PARAM_VENC_VIDEO_SIGNAL_INFO;
 		pdata = &signal_info;
 		break;
@@ -3520,8 +3461,8 @@ static int try_set_ext_ctrl(struct msm_vidc_inst *inst,
 				bitrate.bit_rate = control[i].value;
 				property_id = HAL_CONFIG_VENC_TARGET_BITRATE;
 				pdata = &bitrate;
-				dprintk(VIDC_DBG, "layerwise bitrate for %d\n",
-					i);
+				dprintk(VIDC_DBG, "bitrate for layer(%d)=%d\n",
+					i, bitrate.bit_rate);
 				rc = call_hfi_op(hdev, session_set_property,
 					(void *)inst->session, property_id,
 					 pdata);

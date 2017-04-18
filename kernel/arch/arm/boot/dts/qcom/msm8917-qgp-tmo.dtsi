@@ -13,7 +13,6 @@
 
 #include "msm-pmi8937.dtsi"
 #include "msm8917-qrd.dtsi"
-#include "msm8917-camera-sensor-tmo.dtsi"
 #include "msm8937-mdss-panels.dtsi"
 
 &pmi_haptic {
@@ -116,10 +115,6 @@
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 };
 
-&int_codec {
-	qcom,model = "msm8917-tmo-snd-card";
-};
-
 / {
 	qrd_batterydata: qcom,battery-data {
 		qcom,batt-id-range-pct = <15>;
@@ -146,4 +141,8 @@
 	qcom,warm-bat-decidegc = <600>;
 	qcom,bad-battery-detection-enable;
 	qcom,hold-soc-while-full;
+};
+
+&int_codec {
+	qcom,model = "msm8917-tmo-snd-card";
 };

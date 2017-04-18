@@ -1092,10 +1092,8 @@ static int i2c_msm_dma_xfer_prepare(struct i2c_msm_ctrl *ctrl)
 		}
 
 		if ((rx->desc_cnt_cur >= I2C_MSM_DMA_RX_SZ) ||
-		    (tx->desc_cnt_cur >= I2C_MSM_DMA_TX_SZ)) {
-			dev_err(ctrl->dev, "is_rx:%d, rx_cur:0x%lx, tx_cur:0x%lx", buf->is_rx,rx->desc_cnt_cur, tx->desc_cnt_cur); 
+		    (tx->desc_cnt_cur >= I2C_MSM_DMA_TX_SZ))
 			return -ENOMEM;
-		}
 
 		data.phy_addr = dma_map_single(ctrl->dev, data.vrtl_addr,
 						buf->len, buf_dma_dirctn);

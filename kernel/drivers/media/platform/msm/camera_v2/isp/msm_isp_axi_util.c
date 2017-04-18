@@ -727,6 +727,7 @@ void msm_isp_check_for_output_error(struct vfe_device *vfe_dev,
 	struct msm_vfe_axi_stream *stream_info;
 	struct msm_vfe_axi_shared_data *axi_data;
 	int i;
+	uint32_t stream_idx;
 
 	if (!vfe_dev || !sof_info) {
 		pr_err("%s %d failed: vfe_dev %pK sof_info %pK\n", __func__,
@@ -744,17 +745,31 @@ void msm_isp_check_for_output_error(struct vfe_device *vfe_dev,
 	if (!vfe_dev->reg_updated) {
 		sof_info->regs_not_updated =
 			vfe_dev->reg_update_requested;
-		for (i = 0; i < VFE_AXI_SRC_MAX; i++) {
-			struct msm_vfe_axi_stream *temp_stream_info;
-			stream_info = &axi_data->stream_info[i];
-			if (stream_info->state != ACTIVE ||
-				!stream_info->controllable_output ||
-				(SRC_TO_INTF(stream_info->stream_src) !=
-				VFE_PIX_0))
+	}
+	for (i = 0; i < VFE_AXI_SRC_MAX; i++) {
+		struct msm_vfe_axi_stream *temp_stream_info;
+
+		stream_info = &axi_data->stream_info[i];
+		stream_idx = HANDLE_TO_IDX(stream_info->stream_handle);
+
+		/*
+		 * Process drop only if controllable ACTIVE PIX stream &&
+		 * reg_not_updated
+		 * OR stream is in RESUMING state.
+		 * Other cases there is no drop to report, so continue.
+		 */
+		if (!((stream_info->state == ACTIVE  &&
+			stream_info->controllable_output &&
+			(SRC_TO_INTF(stream_info->stream_src) ==
+			VFE_PIX_0)) ||
+			stream_info->state == RESUMING))
 				continue;
+
+		if (stream_info->controllable_output &&
+			!vfe_dev->reg_updated) {
 			temp_stream_info =
 				msm_isp_get_controllable_stream(vfe_dev,
-								stream_info);
+				stream_info);
 			if (temp_stream_info->undelivered_request_cnt) {
 				if (msm_isp_drop_frame(vfe_dev, stream_info, ts,
 					sof_info)) {
@@ -762,7 +777,18 @@ void msm_isp_check_for_output_error(struct vfe_device *vfe_dev,
 				}
 			}
 		}
+
+		if (stream_info->state == RESUMING &&
+			!stream_info->controllable_output) {
+			ISP_DBG("%s: axi_updating_mask stream_id %x frame_id %d\n",
+				__func__, stream_idx, vfe_dev->axi_data.
+				src_info[SRC_TO_INTF(stream_info->stream_src)]
+				.frame_id);
+			sof_info->axi_updating_mask |=
+				1 << stream_idx;
+		}
 	}
+
 	vfe_dev->reg_updated = 0;
 
 	/* report frame drop per stream */
@@ -1069,7 +1095,7 @@ void msm_isp_start_avtimer(void)
 	avcs_core_disable_power_collapse(1);
 }
 
-static inline void msm_isp_get_avtimer_ts(
+void msm_isp_get_avtimer_ts(
 		struct msm_isp_timestamp *time_stamp)
 {
 	int rc = 0;
@@ -1097,7 +1123,7 @@ void msm_isp_start_avtimer(void)
 	pr_err("AV Timer is not supported\n");
 }
 
-static inline void msm_isp_get_avtimer_ts(
+void msm_isp_get_avtimer_ts(
 		struct msm_isp_timestamp *time_stamp)
 {
 	pr_err_ratelimited("%s: Error: AVTimer driver not available\n",
@@ -2029,8 +2055,8 @@ int msm_isp_drop_frame(struct vfe_device *vfe_dev,
 				__func__, done_buf->bufq_handle);
 			return -EINVAL;
 		}
-		sof_info->reg_update_fail_mask |=
-			1 << (bufq->bufq_handle & 0xF);
+		sof_info->reg_update_fail_mask_ext |=
+			(bufq->bufq_handle & 0xFF);
 	}
 	spin_unlock_irqrestore(&stream_info->lock, flags);
 
@@ -2317,7 +2343,7 @@ int msm_isp_axi_reset(struct vfe_device *vfe_dev,
 	rc = vfe_dev->hw_info->vfe_ops.core_ops.reset_hw(vfe_dev,
 		0, reset_cmd->blocking);
 
-	msm_isp_get_timestamp(&timestamp);
+	msm_isp_get_timestamp(&timestamp, vfe_dev);
 
 	for (i = 0, j = 0; j < axi_data->num_active_stream &&
 		i < VFE_AXI_SRC_MAX; i++, j++) {
@@ -2809,7 +2835,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 		stream_cfg_cmd->num_streams == 0)
 		return -EINVAL;
 
-	msm_isp_get_timestamp(&timestamp);
+	msm_isp_get_timestamp(&timestamp, vfe_dev);
 
 	for (i = 0; i < stream_cfg_cmd->num_streams; i++) {
 		if (HANDLE_TO_IDX(stream_cfg_cmd->stream_handle[i]) >=
@@ -3067,7 +3093,7 @@ static int msm_isp_return_empty_buffer(struct vfe_device *vfe_dev,
 		return rc;
 	}
 
-	msm_isp_get_timestamp(&timestamp);
+	msm_isp_get_timestamp(&timestamp, vfe_dev);
 	buf->buf_debug.put_state[buf->buf_debug.put_state_last] =
 		MSM_ISP_BUFFER_STATE_DROP_REG;
 	buf->buf_debug.put_state_last ^= 1;
@@ -3388,7 +3414,7 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 			stream_info = &axi_data->stream_info[HANDLE_TO_IDX(
 				update_info->stream_handle)];
 			stream_info->buf_divert = 0;
-			msm_isp_get_timestamp(&timestamp);
+			msm_isp_get_timestamp(&timestamp, vfe_dev);
 			frame_id = vfe_dev->axi_data.src_info[
 				SRC_TO_INTF(stream_info->stream_src)].frame_id;
 			/* set ping pong address to scratch before flush */
