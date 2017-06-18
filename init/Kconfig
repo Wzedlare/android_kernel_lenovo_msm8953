@@ -817,7 +817,7 @@ config IKCONFIG_PROC
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"
 	range 12 21
-	default 17
+	default 19
 	depends on PRINTK
 	help
 	  Select the minimal kernel log buffer size as a power of 2.
@@ -1171,6 +1171,16 @@ config SCHED_HMP_CSTATE_AWARE
 	  This feature will let the HMP scheduler optimize task placement
 	  with CPUs C-state. If this is enabled, scheduler places tasks
 	  onto the shallowest C-state CPU among the most power efficient CPUs.
+
+config SCHED_CORE_CTL
+	bool "QTI Core Control"
+	depends on SMP
+	help
+	  This options enables the core control functionality in
+	  the scheduler. Core control automatically offline and
+	  online cores based on cpu load and utilization.
+
+	  If unsure, say N here.
 
 config SCHED_QHMP
 	bool "QHMP scheduler extensions"

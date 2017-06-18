@@ -344,7 +344,7 @@ int dwc3_send_gadget_ep_cmd(struct dwc3 *dwc, unsigned ep,
 		unsigned cmd, struct dwc3_gadget_ep_cmd_params *params)
 {
 	struct dwc3_ep		*dep = dwc->eps[ep];
-	u32			timeout = 1500;
+	u32			timeout = 50000;
 	u32			reg;
 
 	trace_dwc3_gadget_ep_cmd(dep, cmd, params);
@@ -381,6 +381,11 @@ int dwc3_send_gadget_ep_cmd(struct dwc3 *dwc, unsigned ep,
 		if (!timeout) {
 			dev_err(dwc->dev, "%s command timeout for %s\n",
 				dwc3_gadget_ep_cmd_string(cmd), dep->name);
+			if (!(cmd & DWC3_DEPCMD_ENDTRANSFER)) {
+				dwc->ep_cmd_timeout_cnt++;
+				dwc3_notify_event(dwc,
+					DWC3_CONTROLLER_RESTART_USB_SESSION, 0);
+			}
 			return -ETIMEDOUT;
 		}
 
@@ -3608,6 +3613,14 @@ irqreturn_t dwc3_interrupt(int irq, void *_dwc)
 		spin_unlock(&dwc->lock);
 		return IRQ_HANDLED;
 	}
+
+//lenovo sw, yexh1 add protect if the dwc3 is not initialized
+	if (!dwc->ev_buffs) {
+		pr_err("the usb dwc3 is not initialized\n");
+		spin_unlock(&dwc->lock);
+		return IRQ_HANDLED;
+	}
+//lenovo sw, yexh1
 
 	for (i = 0; i < dwc->num_normal_event_buffers; i++) {
 		irqreturn_t status;

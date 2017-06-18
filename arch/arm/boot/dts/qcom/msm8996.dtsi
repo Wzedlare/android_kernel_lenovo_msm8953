@@ -2226,6 +2226,7 @@
 
 	qcom,cnss {
 		compatible = "qcom,cnss";
+		wlan-bootstrap-gpio = <&tlmm 46 0>;
 		vdd-wlan-en-supply = <&wlan_en_vreg>;
 		vdd-wlan-supply = <&rome_vreg>;
 		vdd-wlan-io-supply = <&pm8994_s4>;
@@ -2453,6 +2454,8 @@
 		qcom,use-sw-aes-xts-algo;
 		qcom,use-sw-aes-ccm-algo;
 		qcom,use-sw-ahash-algo;
+		qcom,use-sw-hmac-algo;
+		qcom,use-sw-aead-algo;
 	};
 
 	qcom_cedev: qcedev@660000 {

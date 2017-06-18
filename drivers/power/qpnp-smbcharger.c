@@ -279,6 +279,7 @@ struct smbchg_chip {
 	struct votable			*hw_aicl_rerun_disable_votable;
 	struct votable			*hw_aicl_rerun_enable_indirect_votable;
 	struct votable			*aicl_deglitch_short_votable;
+	struct votable			*hvdcp_enable_votable;
 };
 
 enum qpnp_schg {
@@ -420,6 +421,12 @@ enum aicl_short_deglitch_voters {
 	/* QC 2.0 */
 	HVDCP_SHORT_DEGLITCH_VOTER,
 	NUM_HW_SHORT_DEGLITCH_VOTERS,
+};
+enum hvdcp_voters {
+	HVDCP_PMIC_VOTER,
+	HVDCP_OTG_VOTER,
+	HVDCP_PULSING_VOTER,
+	NUM_HVDCP_VOTERS,
 };
 static int smbchg_debug_mask;
 module_param_named(
@@ -2472,6 +2479,26 @@ static int dc_suspend_vote_cb(struct device *dev, int suspend,
 	return rc;
 }
 
+#define HVDCP_EN_BIT			BIT(3)
+static int smbchg_hvdcp_enable_cb(struct device *dev, int enable,
+						int client, int last_enable,
+						int last_client)
+{
+	int rc = 0;
+	struct smbchg_chip *chip = dev_get_drvdata(dev);
+
+	pr_err("smbchg_hvdcp_enable_cb  enable %d last_enable %d\n",
+			enable, last_enable);
+	rc = smbchg_sec_masked_write(chip,
+				chip->usb_chgpth_base + CHGPTH_CFG,
+				HVDCP_EN_BIT, enable ? HVDCP_EN_BIT : 0);
+	if (rc < 0)
+		dev_err(chip->dev, "Couldn't %s HVDCP rc=%d\n",
+				enable ? "enable" : "disable", rc);
+
+	return rc;
+}
+
 static int set_fastchg_current_vote_cb(struct device *dev,
 						int fcc_ma,
 						int client,
@@ -3836,7 +3863,6 @@ struct regulator_ops smbchg_otg_reg_ops = {
 #define USBIN_ADAPTER_9V		0x3
 #define USBIN_ADAPTER_5V_9V_CONT	0x2
 #define USBIN_ADAPTER_5V_UNREGULATED_9V	0x5
-#define HVDCP_EN_BIT			BIT(3)
 static int smbchg_external_otg_regulator_enable(struct regulator_dev *rdev)
 {
 	int rc = 0;
@@ -3860,9 +3886,7 @@ static int smbchg_external_otg_regulator_enable(struct regulator_dev *rdev)
 	 * allowance to 9V, so that the audio boost operating in reverse never
 	 * gets detected as a valid input
 	 */
-	rc = smbchg_sec_masked_write(chip,
-				chip->usb_chgpth_base + CHGPTH_CFG,
-				HVDCP_EN_BIT, 0);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_OTG_VOTER, true, 0);
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't disable HVDCP rc=%d\n", rc);
 		return rc;
@@ -3896,9 +3920,7 @@ static int smbchg_external_otg_regulator_disable(struct regulator_dev *rdev)
 	 * value in order to allow normal USBs to be recognized as a valid
 	 * input.
 	 */
-	rc = smbchg_sec_masked_write(chip,
-				chip->usb_chgpth_base + CHGPTH_CFG,
-				HVDCP_EN_BIT, HVDCP_EN_BIT);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_OTG_VOTER, false, 1);
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't enable HVDCP rc=%d\n", rc);
 		return rc;
@@ -4516,8 +4538,7 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	 * and set type after the vote
 	 */
 	if (type == POWER_SUPPLY_TYPE_UNKNOWN) {
-		rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, false,
-				current_limit_ma);
+		rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true, 0);
 		if (rc < 0)
 			pr_err("Couldn't remove ICL vote rc=%d\n", rc);
 
@@ -4636,9 +4657,7 @@ static void restore_from_hvdcp_detection(struct smbchg_chip *chip)
 		pr_err("Couldn't configure HVDCP 9V rc=%d\n", rc);
 
 	/* enable HVDCP */
-	rc = smbchg_sec_masked_write(chip,
-				chip->usb_chgpth_base + CHGPTH_CFG,
-				HVDCP_EN_BIT, HVDCP_EN_BIT);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, false, 1);
 	if (rc < 0)
 		pr_err("Couldn't enable HVDCP rc=%d\n", rc);
 
@@ -5189,8 +5208,7 @@ static int smbchg_prepare_for_pulsing(struct smbchg_chip *chip)
 
 	/* disable HVDCP */
 	pr_smb(PR_MISC, "Disable HVDCP\n");
-	rc = smbchg_sec_masked_write(chip, chip->usb_chgpth_base + CHGPTH_CFG,
-			HVDCP_EN_BIT, 0);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, true, 0);
 	if (rc < 0) {
 		pr_err("Couldn't disable HVDCP rc=%d\n", rc);
 		goto out;
@@ -5295,9 +5313,7 @@ static int smbchg_unprepare_for_pulsing(struct smbchg_chip *chip)
 
 	/* enable HVDCP */
 	pr_smb(PR_MISC, "Enable HVDCP\n");
-	rc = smbchg_sec_masked_write(chip,
-				chip->usb_chgpth_base + CHGPTH_CFG,
-				HVDCP_EN_BIT, HVDCP_EN_BIT);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, false, 1);
 	if (rc < 0) {
 		pr_err("Couldn't enable HVDCP rc=%d\n", rc);
 		return rc;
@@ -6850,7 +6866,15 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 			chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR]);
 
 	/* Setup 9V HVDCP */
-	if (!chip->hvdcp_not_supported) {
+	if (chip->hvdcp_not_supported) {
+		rc = vote(chip->hvdcp_enable_votable, HVDCP_PMIC_VOTER,
+				true, 0);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't disable HVDCP rc=%d\n",
+					rc);
+			return rc;
+		}
+	} else {
 		rc = smbchg_sec_masked_write(chip,
 				chip->usb_chgpth_base + CHGPTH_CFG,
 				HVDCP_ADAPTER_SEL_MASK, HVDCP_9V);
@@ -7762,6 +7786,59 @@ static int smbchg_request_irqs(struct smbchg_chip *chip)
 	return rc;
 }
 
+/*lenovo-sw weiweij added for disable pmi charger*/
+static int smbchg_request_irqs_simple(struct smbchg_chip *chip)
+{
+	int rc = 0;
+	struct resource *resource;
+	struct spmi_resource *spmi_resource;
+	u8 subtype;
+	struct spmi_device *spmi = chip->spmi;
+	unsigned long flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING
+							| IRQF_ONESHOT;
+
+	pr_err("%s\n", __func__);
+	spmi_for_each_container_dev(spmi_resource, chip->spmi) {
+		if (!spmi_resource) {
+				dev_err(chip->dev, "spmi resource absent\n");
+			return rc;
+		}
+
+		resource = spmi_get_resource(spmi, spmi_resource,
+						IORESOURCE_MEM, 0);
+		if (!(resource && resource->start)) {
+			dev_err(chip->dev, "node %s IO resource absent!\n",
+				spmi->dev.of_node->full_name);
+			return rc;
+		}
+
+		rc = smbchg_read(chip, &subtype,
+				resource->start + SUBTYPE_REG, 1);
+		if (rc) {
+			dev_err(chip->dev, "Peripheral subtype read failed rc=%d\n",
+					rc);
+			return rc;
+		}
+
+		switch (subtype) {
+		case SMBCHG_USB_CHGPTH_SUBTYPE:
+		case SMBCHG_LITE_USB_CHGPTH_SUBTYPE:
+			REQUEST_IRQ(chip, spmi_resource, chip->src_detect_irq,
+				"usbin-src-det",
+				src_detect_handler, flags, rc);
+			enable_irq_wake(chip->src_detect_irq);
+			if (chip->parallel.avail && chip->usb_present) {
+				rc = enable_irq_wake(chip->aicl_done_irq);
+				chip->enable_aicl_wake = true;
+			}
+			break;
+		}
+	}
+
+	return rc;
+}
+/*lenovo-sw weiweij added for disable pmi charger end*/
+
 #define REQUIRE_BASE(chip, base, rc)					\
 do {									\
 	if (!rc && !chip->base) {					\
@@ -8024,6 +8101,8 @@ static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip)
 	}
 }
 
+static int use_externel_charger = -1;
+
 static int smbchg_probe(struct spmi_device *spmi)
 {
 	int rc;
@@ -8031,6 +8110,13 @@ static int smbchg_probe(struct spmi_device *spmi)
 	struct power_supply *usb_psy, *typec_psy = NULL;
 	struct qpnp_vadc_chip *vadc_dev = NULL, *vchg_vadc_dev = NULL;
 	const char *typec_psy_name;
+
+	if (of_find_property(spmi->dev.of_node, "qcom,use-external-charger", NULL)) {
+		use_externel_charger = 1;
+		pr_info("external charger used!\n");
+		return 0;
+	}else
+		use_externel_charger = 0;
 
 	usb_psy = power_supply_get_by_name("usb");
 	if (!usb_psy) {
@@ -8147,6 +8233,13 @@ static int smbchg_probe(struct spmi_device *spmi)
 	if (IS_ERR(chip->aicl_deglitch_short_votable))
 		return PTR_ERR(chip->aicl_deglitch_short_votable);
 
+	chip->hvdcp_enable_votable = create_votable(&spmi->dev,
+			"SMBCHG: hvdcp_enable",
+			VOTE_MIN, NUM_HVDCP_VOTERS, 1,
+			smbchg_hvdcp_enable_cb);
+	if (IS_ERR(chip->hvdcp_enable_votable))
+		return PTR_ERR(chip->hvdcp_enable_votable);
+
 	INIT_WORK(&chip->usb_set_online_work, smbchg_usb_update_online_work);
 	INIT_DELAYED_WORK(&chip->parallel_en_work,
 			smbchg_parallel_usb_en_work);
@@ -8193,6 +8286,49 @@ static int smbchg_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "Unable to parse DT nodes: %d\n", rc);
 		return rc;
 	}
+
+	/*lenovo-sw weiweij added for disable pmi charger*/
+	if(of_find_property(spmi->dev.of_node, "qcom,pmi-charger-disable", NULL)) {
+		unsigned char val;
+		pr_err("%s find pmi-charer-disable, return\n", __func__);
+#if 0
+		//wakeup_source_trash(&chip->smbchg_wake_source);
+		rc = smbchg_masked_write(chip, chip->chgr_base + CHGR_CFG2,
+				CHARGER_INHIBIT_BIT, CHARGER_INHIBIT_BIT);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set chgr_cfg2 rc=%d\n", rc);
+			return rc;
+		}
+
+		rc = smbchg_masked_write(chip, chip->usb_chgpth_base+ CMD_IL,
+				USBIN_SUSPEND_BIT, USBIN_SUSPEND_BIT);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set CMD_IL rc=%d\n", rc);
+			return rc;
+		}
+#endif
+		rc = smbchg_masked_write(chip, chip->bat_if_base + CMD_CHG_REG,
+				EN_BAT_CHG_BIT, 0);
+		if (rc < 0) {
+			dev_err(chip->dev, "Couldn't set CMD_CHG_REG rc=%d\n", rc);
+			return rc;
+		}
+
+		smbchg_read(chip, &val, chip->chgr_base + CHGR_CFG2, 1);
+		dev_err(chip->dev, "read chgr_cfg2 0x%x\n", val);
+		smbchg_read(chip, &val, chip->usb_chgpth_base + CMD_IL, 1);
+		dev_err(chip->dev, "read CMD_IL 0x%x\n", val);
+		smbchg_read(chip, &val, chip->bat_if_base + CMD_CHG_REG, 1);
+		dev_err(chip->dev, "read chgr_cfg 0x%x\n", val);
+		smbchg_read(chip, &val, chip->chgr_base + RT_STS, 1);
+		dev_err(chip->dev, "read RT_STS 0x%x\n", val);
+		smbchg_read(chip, &val, chip->chgr_base + CHGR_STS, 1);
+		dev_err(chip->dev, "read CHGR_STS 0x%x\n", val);
+
+		smbchg_request_irqs_simple(chip);
+		return 0;//-EINVAL;
+	}
+	/*lenovo-sw weiweij added for disable pmi charger end*/
 
 	rc = smbchg_regulator_init(chip);
 	if (rc) {
@@ -8327,6 +8463,11 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 	struct smbchg_chip *chip = dev_get_drvdata(&spmi->dev);
 	int i, rc;
 
+	if(use_externel_charger) {
+		pr_info("%s using externel charger return\n", __func__);
+		return;
+	}
+
 	if (!(chip->wa_flags & SMBCHG_RESTART_WA))
 		return;
 
@@ -8406,8 +8547,7 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 
 	/* disable HVDCP */
 	pr_smb(PR_MISC, "Disable HVDCP\n");
-	rc = smbchg_sec_masked_write(chip, chip->usb_chgpth_base + CHGPTH_CFG,
-			HVDCP_EN_BIT, 0);
+	rc = vote(chip->hvdcp_enable_votable, HVDCP_PMIC_VOTER, true, 0);
 	if (rc < 0)
 		pr_err("Couldn't disable HVDCP rc=%d\n", rc);
 

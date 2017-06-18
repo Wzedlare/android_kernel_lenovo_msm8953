@@ -1,0 +1,25 @@
+ccflags-y += -Icamera
+ccflags-y += -Icamera/sensor
+ccflags-y += -Icamera/codecs
+ccflags-y += -Icamera/isps
+ccflags-y += -Icamera/pproc
+ccflags-y += -Icamera/msm_vb2
+ccflags-y += -Icamera/camera
+ccflags-y += -Icamera/jpeg_10
+ccflags-y += -Icamera/jpeg_dma
+ccflags-y += -Icamera/fd
+ccflags-y += -Icamera/common
+
+obj-$(CONFIG_MSMB_CAMERA) += common/
+obj-$(CONFIG_MSMB_CAMERA) += msm.o
+obj-$(CONFIG_MSMB_CAMERA) += camera/
+obj-$(CONFIG_MSMB_CAMERA) += msm_vb2/
+obj-$(CONFIG_MSMB_CAMERA) += sensor/
+obj-$(CONFIG_MSMB_CAMERA) += pproc/
+obj-$(CONFIG_MSMB_CAMERA) += isp/
+obj-$(CONFIG_MSMB_CAMERA) += ispif/
+obj-$(CONFIG_MSMB_JPEG) += jpeg_10/
+obj-$(CONFIG_MSM_JPEGDMA) += jpeg_dma/
+obj-$(CONFIG_MSMB_CAMERA) += msm_buf_mgr/
+obj-$(CONFIG_MSM_FD) += fd/
+obj-$(CONFIG_MSMB_CAMERA) += cci_intf.o

@@ -104,7 +104,7 @@ void mdss_dsi_ctrl_init(struct device *ctrl_dev,
 	if (ctrl->mdss_util->register_irq(ctrl->dsi_hw))
 		pr_err("%s: mdss_register_irq failed.\n", __func__);
 
-	pr_debug("%s: ndx=%d base=%p\n", __func__, ctrl->ndx, ctrl->ctrl_base);
+	pr_debug("%s: ndx=%d base=%pK\n", __func__, ctrl->ndx, ctrl->ctrl_base);
 
 	init_completion(&ctrl->dma_comp);
 	init_completion(&ctrl->mdp_comp);
@@ -746,6 +746,8 @@ static void mdss_dsi_ctl_phy_reset(struct mdss_dsi_ctrl_pdata *ctrl, u32 event)
 	u32 data0, data1, mask = 0, data_lane_en = 0;
 	struct mdss_dsi_ctrl_pdata *ctrl0, *ctrl1;
 	u32 ln0, ln1, ln_ctrl0, ln_ctrl1, i;
+	int rc = 0;
+
 	/*
 	 * Add 2 ms delay suggested by HW team.
 	 * Check clk lane stop state after every 200 us
@@ -767,9 +769,15 @@ static void mdss_dsi_ctl_phy_reset(struct mdss_dsi_ctrl_pdata *ctrl, u32 event)
 		ctrl0 = mdss_dsi_get_ctrl_by_index(DSI_CTRL_0);
 		ctrl1 = mdss_dsi_get_ctrl_by_index(DSI_CTRL_1);
 
-		if (ctrl0->recovery)
-			ctrl0->recovery->fxn(ctrl0->recovery->data,
+		if (ctrl0->recovery) {
+			rc = ctrl0->recovery->fxn(ctrl0->recovery->data,
 					MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW);
+			if (rc < 0) {
+				pr_debug("%s: Target is in suspend/shutdown\n",
+					__func__);
+				return;
+			}
+		}
 		/*
 		 * Disable PHY contention detection and receive.
 		 * Configure the strength ctrl 1 register.
@@ -859,9 +867,15 @@ static void mdss_dsi_ctl_phy_reset(struct mdss_dsi_ctrl_pdata *ctrl, u32 event)
 		 */
 		udelay(200);
 	} else {
-		if (ctrl->recovery)
-			ctrl->recovery->fxn(ctrl->recovery->data,
+		if (ctrl->recovery) {
+			rc = ctrl->recovery->fxn(ctrl->recovery->data,
 					MDP_INTF_DSI_VIDEO_FIFO_OVERFLOW);
+			if (rc < 0) {
+				pr_debug("%s: Target is in suspend/shutdown\n",
+					__func__);
+				return;
+			}
+		}
 		/* Disable PHY contention detection and receive */
 		MIPI_OUTP((ctrl->phy_io.base) + 0x0188, 0);
 
@@ -1172,14 +1186,16 @@ int mdss_dsi_reg_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	 * by the panel. Success value is greater than zero and failure
 	 * case returns zero.
 	 */
-	if (ret > 0) {
+	if (ret > 0)  {
 		if (!mdss_dsi_sync_wait_enable(ctrl_pdata) ||
 			mdss_dsi_sync_wait_trigger(ctrl_pdata))
 			ret = ctrl_pdata->check_read_status(ctrl_pdata);
 		else if (sctrl_pdata)
 			ret = ctrl_pdata->check_read_status(sctrl_pdata);
 	} else {
-		pr_err("%s: Read status register returned error\n", __func__);
+		pr_err("%s: Read status register returned error, ret = %d\n",
+			__func__, ret);
+		ret = 0;
 	}
 
 	mdss_dsi_clk_ctrl(ctrl_pdata, ctrl_pdata->dsi_clk_handle,
@@ -1729,6 +1745,17 @@ do_send:
 	return len;
 }
 
+static void mdss_dsi_cmd_rx_data_log(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	pr_warn("%s: read_cnt = %d, DATA3 = 0x%08x, DATA2 = 0x%08x, DATA1 = 0x%08x, DATA0 = 0x%08x\n",
+		__func__,
+		MIPI_INP((ctrl->ctrl_base) + 0x01d4) >> 16,
+		MIPI_INP((ctrl->ctrl_base) + 0x078),
+		MIPI_INP((ctrl->ctrl_base) + 0x074),
+		MIPI_INP((ctrl->ctrl_base) + 0x070),
+		MIPI_INP((ctrl->ctrl_base) + 0x06c));
+}
+
 /* MIPI_DSI_MRPS, Maximum Return Packet Size */
 static char max_pktsize[2] = {0x00, 0x00}; /* LSB tx first, 10 bytes */
 
@@ -1944,7 +1971,7 @@ skip_max_pkt_size:
 	cmd = rp->data[0];
 	switch (cmd) {
 	case DTYPE_ACK_ERR_RESP:
-		pr_debug("%s: rx ACK_ERR_PACLAGE\n", __func__);
+		pr_info("%s: rx ACK_ERR_PACKAGE\n", __func__);
 		rp->len = 0;
 		rp->read_cnt = 0;
 	case DTYPE_GEN_READ1_RESP:
@@ -1960,7 +1987,8 @@ skip_max_pkt_size:
 		mdss_dsi_long_read_resp(rp);
 		break;
 	default:
-		pr_warning("%s:Invalid response cmd\n", __func__);
+		pr_warn("%s:Invalid response cmd=0x%x\n", __func__, cmd);
+		mdss_dsi_cmd_rx_data_log(ctrl);
 		rp->len = 0;
 		rp->read_cnt = 0;
 	}
@@ -2061,8 +2089,8 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 		status = reg_val & DSI_INTR_CMD_DMA_DONE;
 		if (status) {
 			reg_val &= DSI_INTR_MASK_ALL;
-			/* clear CMD DMA isr only */
-			reg_val |= DSI_INTR_CMD_DMA_DONE;
+			/* clear CMD DMA and BTA_DONE isr only */
+			reg_val |= (DSI_INTR_CMD_DMA_DONE | DSI_INTR_BTA_DONE);
 			MIPI_OUTP(ctrl->ctrl_base + 0x0110, reg_val);
 			mdss_dsi_disable_irq_nosync(ctrl, DSI_CMD_TERM);
 			complete(&ctrl->dma_comp);
@@ -2070,6 +2098,8 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			pr_warn("%s: dma tx done but irq not triggered\n",
 				__func__);
 		} else {
+			pr_err("%s(%d): wait for dma_comp timed out. ret = 0x%x\n",
+				__func__, ctrl->ndx, ret);
 			ret = -ETIMEDOUT;
 		}
 	}
@@ -2149,6 +2179,14 @@ static int mdss_dsi_cmd_dma_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 	} else {
 		rp->read_cnt = (max_pktsize[0] + 6);
 	}
+
+	/* Sometimes target/display responds with the MIPI DSI acknowledge
+	 * and Error report after returning MIPI DSI read value, that cause
+	 * mdss_dsi_cmd_dma_rx() fails to parse. Print out all read registers
+	 * to investigate this issue
+	 */
+	if (ack_error && (rx_byte == 4))
+		mdss_dsi_cmd_rx_data_log(ctrl);
 
 	/*
 	 * In case of multiple reads from the panel, after the first read, there
@@ -2472,6 +2510,11 @@ int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 				(req->flags & CMD_REQ_DMA_TPG));
 		memcpy(req->rbuf, rp->data, rp->len);
 		ctrl->rx_len = len;
+		if (len != req->rlen) {
+			pr_err("%s: Tried to read %d bytes, actually read %d "
+					"bytes\n", __func__, req->rlen, len);
+			len = 0;
+		}
 	} else {
 		pr_err("%s: No rx buffer provided\n", __func__);
 	}
@@ -2535,13 +2578,15 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	int rc = 0;
 	bool hs_req = false;
 	bool cmd_mutex_acquired = false;
+	u32 forced_mode;
 
+
+	pinfo = &ctrl->panel_data.panel_info;
 	if (from_mdp) {	/* from mdp kickoff */
 		if (!ctrl->burst_mode_enabled) {
 			mutex_lock(&ctrl->cmd_mutex);
 			cmd_mutex_acquired = true;
 		}
-		pinfo = &ctrl->panel_data.panel_info;
 		if (pinfo->partial_update_enabled)
 			roi = &pinfo->roi;
 	}
@@ -2555,8 +2600,16 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	MDSS_XLOG(ctrl->ndx, from_mdp, ctrl->mdp_busy, current->pid,
 							XLOG_FUNC_ENTRY);
 
-	if (req && (req->flags & CMD_REQ_HS_MODE))
-		hs_req = true;
+	if (req) {
+		forced_mode = mdss_dsi_panel_forced_tx_mode_get(pinfo);
+		if (forced_mode) {
+			req->flags &= ~(CMD_REQ_HS_MODE | CMD_REQ_LP_MODE);
+			req->flags |= forced_mode;
+		}
+
+		if (req && (req->flags & CMD_REQ_HS_MODE))
+			hs_req = true;
+	}
 
 	if ((!ctrl->burst_mode_enabled) || from_mdp) {
 		/* make sure dsi_cmd_mdp is idle */
@@ -2968,6 +3021,13 @@ static bool mdss_dsi_fifo_status(struct mdss_dsi_ctrl_pdata *ctrl)
 		MIPI_OUTP(base + 0x000c, status);
 
 		pr_err("%s: status=%x\n", __func__, status);
+
+		/*
+		 * if DSI FIFO overflow is masked,
+		 * do not report overflow error
+		 */
+		if (MIPI_INP(base + 0x10c) & 0xf0000)
+			status = status & 0xaaaaffff;
 
 		if (status & 0x44440000) {/* DLNx_HS_FIFO_OVERFLOW */
 			dsi_send_events(ctrl, DSI_EV_DLNx_FIFO_OVERFLOW, 0);

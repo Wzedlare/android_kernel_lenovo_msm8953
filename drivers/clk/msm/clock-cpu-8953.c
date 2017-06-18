@@ -223,6 +223,30 @@ static struct cpu_clk_8953 a53_perf_clk;
 static struct cpu_clk_8953 cci_clk;
 static void do_nothing(void *unused) { }
 
+//chenyb1, 20140922, Add to show AP's clock rate in /sys/private/pm_status, START
+#ifdef CONFIG_LENOVO_PM_LOG
+unsigned long acpu_clk_get_rate(int cpu)
+{
+	unsigned long cur_rate;
+	struct clk *c;
+	
+	if (cpu/4)
+	{
+		//Perf
+		c = &(a53_perf_clk.c);
+	}
+	else
+	{
+		//power
+		c = &(a53_pwr_clk.c);
+	}
+
+	cur_rate = clk_get_rate(c->parent);
+	return cur_rate;
+}
+#endif //#ifdef CONFIG_LENOVO_PM_LOG
+//chenyb1, 20140922, Add to show AP's clock rate in /sys/private/pm_status, END
+
 static inline struct cpu_clk_8953 *to_cpu_clk_8953(struct clk *c)
 {
 	return container_of(c, struct cpu_clk_8953, c);
@@ -753,6 +777,34 @@ static int cpu_parse_devicetree(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+ * clock_panic_callback() - panic notification callback function.
+ *              This function is invoked when a kernel panic occurs.
+ * @nfb:        Notifier block pointer
+ * @event:      Value passed unmodified to notifier function
+ * @data:       Pointer passed unmodified to notifier function
+ *
+ * Return: NOTIFY_OK
+ */
+static int clock_panic_callback(struct notifier_block *nfb,
+					unsigned long event, void *data)
+{
+	unsigned long rate;
+
+	rate  = (a53_perf_clk.c.count) ? a53_perf_clk.c.rate : 0;
+	pr_err("%s frequency: %10lu Hz\n", a53_perf_clk.c.dbg_name, rate);
+
+	rate  = (a53_pwr_clk.c.count) ? a53_pwr_clk.c.rate : 0;
+	pr_err("%s frequency: %10lu Hz\n", a53_pwr_clk.c.dbg_name, rate);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block clock_panic_notifier = {
+	.notifier_call = clock_panic_callback,
+	.priority = 1,
+};
+
 static int clock_cpu_probe(struct platform_device *pdev)
 {
 	int speed_bin, version, rc, cpu, mux_id;
@@ -874,6 +926,9 @@ static int clock_cpu_probe(struct platform_device *pdev)
 		a53_pwr_clk.hw_low_power_ctrl = true;
 		a53_perf_clk.hw_low_power_ctrl = true;
 	}
+
+	atomic_notifier_chain_register(&panic_notifier_list,
+						&clock_panic_notifier);
 
 	return 0;
 }
